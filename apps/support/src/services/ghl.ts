@@ -1,4 +1,5 @@
 import type { Ticket, Contact, TicketStatus, TicketCategory, TicketPriority } from '../types/ticket';
+import { DEMO_DATA } from './tickets';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -52,8 +53,8 @@ export interface CreateTicketParams {
 
 export async function createTicket(params: CreateTicketParams): Promise<Ticket> {
   if (DEMO_MODE) {
-    // Demo stub — real data injected in Batch 10
-    return null as unknown as Ticket;
+    // Return the first demo ticket as a stand-in for a newly created ticket
+    return DEMO_DATA.tickets[0];
   }
 
   const result = await workerFetch<{ ticketId: string; ghlOpportunityId: string }>(
@@ -64,8 +65,6 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
     }
   );
 
-  // Hydrate a minimal Ticket from the create response
-  // Full record available via getTicket() if needed immediately after create
   return getTicket(result.ghlOpportunityId);
 }
 
@@ -77,6 +76,7 @@ export async function updateTicketStatus(
   status: TicketStatus
 ): Promise<void> {
   if (DEMO_MODE) {
+    // No-op in demo mode — status changes are not persisted
     return;
   }
 
@@ -94,7 +94,9 @@ export async function updateTicketStatus(
 // ---------------------------------------------------------------------------
 export async function getTicket(ghlOpportunityId: string): Promise<Ticket> {
   if (DEMO_MODE) {
-    return null as unknown as Ticket;
+    const ticket = DEMO_DATA.tickets.find(t => t.ghlOpportunityId === ghlOpportunityId);
+    if (!ticket) throw new Error(`Demo ticket not found: ${ghlOpportunityId}`);
+    return ticket;
   }
 
   const result = await workerFetch<{ ticket: Ticket; contact: Contact | null }>(
@@ -114,7 +116,14 @@ export interface ListTicketsFilters {
 
 export async function listTickets(filters: ListTicketsFilters = {}): Promise<Ticket[]> {
   if (DEMO_MODE) {
-    return [];
+    let tickets = DEMO_DATA.tickets;
+    if (filters.status) {
+      tickets = tickets.filter(t => t.status === filters.status);
+    }
+    if (filters.limit != null) {
+      tickets = tickets.slice(0, filters.limit);
+    }
+    return tickets;
   }
 
   const params = new URLSearchParams();
@@ -130,7 +139,9 @@ export async function listTickets(filters: ListTicketsFilters = {}): Promise<Tic
 // ---------------------------------------------------------------------------
 export async function getContact(ghlContactId: string): Promise<Contact> {
   if (DEMO_MODE) {
-    return null as unknown as Contact;
+    const contact = DEMO_DATA.contacts[ghlContactId];
+    if (!contact) throw new Error(`Demo contact not found: ${ghlContactId}`);
+    return contact;
   }
 
   return workerFetch<Contact>(`/ghl/contacts/${ghlContactId}`);

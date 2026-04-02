@@ -30,6 +30,14 @@
 import { createClient } from '@supabase/supabase-js';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { Message } from '../types/ticket';
+import { DEMO_DATA } from './tickets';
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+const DEMO_MODE =
+  (import.meta as Record<string, unknown> & { env: Record<string, string> }).env
+    .VITE_DEMO_MODE === 'true';
 
 // ---------------------------------------------------------------------------
 // Database row type (matches support_messages schema)
@@ -55,7 +63,7 @@ const supabaseAnonKey = (
   import.meta as Record<string, unknown> & { env: Record<string, string> }
 ).env.VITE_SUPABASE_ANON_KEY as string;
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '');
 
 // ---------------------------------------------------------------------------
 // Row → Message
@@ -77,6 +85,10 @@ function rowToMessage(row: MessageRow): Message {
 // RLS ensures clients only receive non-internal rows.
 // ---------------------------------------------------------------------------
 export async function getMessages(ticketId: string): Promise<Message[]> {
+  if (DEMO_MODE) {
+    return DEMO_DATA.messages[ticketId] ?? [];
+  }
+
   const { data, error } = await supabase
     .from('support_messages')
     .select('*')
@@ -100,6 +112,24 @@ export async function addMessage(
   content: string,
   isInternal = false
 ): Promise<Message> {
+  if (DEMO_MODE) {
+    // Return a synthetic message — not persisted in demo mode
+    const syntheticMsg: Message = {
+      id:         `demo-${Date.now()}`,
+      ticketId,
+      role,
+      content,
+      isInternal,
+      createdAt:  new Date(),
+    };
+    // Append to in-memory demo messages so the UI reflects it immediately
+    if (!DEMO_DATA.messages[ticketId]) {
+      DEMO_DATA.messages[ticketId] = [];
+    }
+    DEMO_DATA.messages[ticketId].push(syntheticMsg);
+    return syntheticMsg;
+  }
+
   const { data, error } = await supabase
     .from('support_messages')
     .insert({
@@ -123,6 +153,8 @@ export async function addMessage(
 // Returns a RealtimeChannel subscribed to INSERT events on the given ticket.
 // Caller is responsible for calling channel.unsubscribe() on teardown.
 //
+// In demo mode, returns a no-op mock channel object.
+//
 // Usage:
 //   const channel = subscribeToTicket(ticketId, (msg) => { ... });
 //   // on unmount:
@@ -132,6 +164,13 @@ export function subscribeToTicket(
   ticketId: string,
   callback: (message: Message) => void
 ): RealtimeChannel {
+  if (DEMO_MODE) {
+    // Return a minimal no-op object that satisfies the RealtimeChannel interface
+    return {
+      unsubscribe: () => Promise.resolve('ok' as const),
+    } as unknown as RealtimeChannel;
+  }
+
   const channel = supabase
     .channel(`ticket:${ticketId}`)
     .on(
