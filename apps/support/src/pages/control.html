@@ -3,9 +3,534 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Support Control Center</title>
+  <title>Legacy Fusion — Control Center</title>
+  <link rel="stylesheet" href="../styles/base.css" />
+  <link rel="stylesheet" href="../styles/control.css" />
 </head>
 <body>
-  <!-- stub -->
+
+  <!-- =====================================================================
+       Control App Shell — 3-panel layout
+       ===================================================================== -->
+  <div class="control-app">
+
+    <!-- -----------------------------------------------------------------
+         Panel 1 — Queue Filters (170px)
+         ----------------------------------------------------------------- -->
+    <aside class="queue-panel glass-card" id="queuePanel">
+
+      <div class="queue-header">
+        <span class="queue-brand">
+          <span class="brand-dot"></span>
+          Filters
+        </span>
+      </div>
+
+      <!-- Priority -->
+      <div class="queue-section">
+        <div class="queue-section-label">Priority</div>
+        <button class="queue-item active" data-filter="priority" data-value="urgent">
+          <span>Urgent</span>
+          <span class="filter-count badge-pill" id="count-urgent">0</span>
+        </button>
+        <button class="queue-item" data-filter="priority" data-value="high">
+          <span>High</span>
+          <span class="filter-count badge-pill" id="count-high">0</span>
+        </button>
+        <button class="queue-item" data-filter="priority" data-value="unassigned">
+          <span>Unassigned</span>
+          <span class="filter-count badge-pill" id="count-unassigned">0</span>
+        </button>
+      </div>
+
+      <!-- Category -->
+      <div class="queue-section">
+        <div class="queue-section-label">Category</div>
+        <button class="queue-item" data-filter="category" data-value="billing">
+          <span>Billing</span>
+          <span class="filter-count badge-pill" id="count-billing">0</span>
+        </button>
+        <button class="queue-item" data-filter="category" data-value="technical">
+          <span>Technical</span>
+          <span class="filter-count badge-pill" id="count-technical">0</span>
+        </button>
+        <button class="queue-item" data-filter="category" data-value="general">
+          <span>General</span>
+          <span class="filter-count badge-pill" id="count-general">0</span>
+        </button>
+      </div>
+
+      <!-- Status -->
+      <div class="queue-section">
+        <div class="queue-section-label">Status</div>
+        <button class="queue-item" data-filter="status" data-value="in_progress">
+          <span>In Progress</span>
+          <span class="filter-count badge-pill" id="count-in_progress">0</span>
+        </button>
+        <button class="queue-item" data-filter="status" data-value="waiting">
+          <span>Waiting</span>
+          <span class="filter-count badge-pill" id="count-waiting">0</span>
+        </button>
+        <button class="queue-item" data-filter="status" data-value="resolved">
+          <span>Resolved</span>
+          <span class="filter-count badge-pill" id="count-resolved">0</span>
+        </button>
+      </div>
+
+    </aside>
+
+    <!-- -----------------------------------------------------------------
+         Panel 2 — Ticket List (280px)
+         ----------------------------------------------------------------- -->
+    <section class="ticket-list-panel glass-card" id="ticketListPanel">
+
+      <div class="ticket-list-header">
+        <span class="ticket-list-title">Support Queue</span>
+        <span class="live-badge">
+          <span class="live-dot"></span>
+          Live
+        </span>
+      </div>
+
+      <div class="ticket-list" id="ticketList">
+        <!-- Ticket rows injected by JS -->
+      </div>
+
+    </section>
+
+    <!-- -----------------------------------------------------------------
+         Panel 3 — Workspace (flex 1)
+         ----------------------------------------------------------------- -->
+    <section class="workspace-panel" id="workspacePanel">
+
+      <!-- Empty state -->
+      <div class="workspace-empty glass-card" id="workspaceEmpty">
+        <span class="empty-glyph">⬡</span>
+        <p class="empty-label">Select a ticket to view the workspace</p>
+      </div>
+
+      <!-- Workspace content (hidden until ticket selected) -->
+      <div class="workspace-content hidden" id="workspaceContent">
+
+        <!-- Workspace header -->
+        <div class="workspace-header glass-card">
+          <div class="workspace-header-left">
+            <span class="ws-ticket-id" id="wsTicketId">T-000000</span>
+            <span class="ws-subject" id="wsSubject">Loading…</span>
+          </div>
+          <div class="workspace-header-actions">
+            <button class="btn-cyan ws-action-btn" id="btnAssign">Assign</button>
+            <button class="btn-cyan ws-action-btn" id="btnEscalate">Escalate</button>
+            <button class="btn-gold ws-action-btn" id="btnResolve">Resolve</button>
+            <button class="btn-outline ws-action-btn" id="btnClose">Close</button>
+          </div>
+        </div>
+
+        <!-- AI Summary card -->
+        <div class="ai-summary-card glass-card" id="aiSummaryCard">
+          <div class="ai-card-header">
+            <span class="ai-label">AI</span>
+            <span class="ai-card-title">LegacyZero Analysis</span>
+          </div>
+          <div class="ai-metrics-grid">
+            <div class="ai-metric">
+              <span class="metric-label">Category</span>
+              <span class="metric-value" id="aiCategory">—</span>
+            </div>
+            <div class="ai-metric">
+              <span class="metric-label">Priority</span>
+              <span class="metric-value" id="aiPriority">—</span>
+            </div>
+            <div class="ai-metric">
+              <span class="metric-label">SLA Deadline</span>
+              <span class="metric-value" id="aiSLA">—</span>
+            </div>
+          </div>
+          <p class="ai-summary-text" id="aiSummaryText">Analyzing conversation…</p>
+        </div>
+
+        <!-- Conversation thread -->
+        <div class="ws-thread" id="wsThread">
+          <!-- Bubbles injected by JS -->
+        </div>
+
+        <!-- Context strip -->
+        <div class="context-strip glass-card" id="contextStrip">
+          <div class="context-item">
+            <span class="context-label">Contact</span>
+            <span class="context-value" id="ctxName">—</span>
+          </div>
+          <div class="context-sep"></div>
+          <div class="context-item">
+            <span class="context-label">Plan</span>
+            <span class="context-value" id="ctxPlan">
+              <span class="badge-pill badge-cyan" id="ctxPlanBadge">—</span>
+            </span>
+          </div>
+          <div class="context-sep"></div>
+          <div class="context-item">
+            <span class="context-label">MRR</span>
+            <span class="context-value context-mrr" id="ctxMRR">—</span>
+          </div>
+          <div class="context-sep"></div>
+          <div class="context-item">
+            <span class="context-label">Member Since</span>
+            <span class="context-value" id="ctxSince">—</span>
+          </div>
+          <div class="context-sep"></div>
+          <div class="context-item">
+            <span class="context-label">Past Tickets</span>
+            <span class="context-value" id="ctxPastTickets">—</span>
+          </div>
+          <div class="context-sep"></div>
+          <a class="context-ghl-link text-cyan" id="ctxGHLLink" href="#" target="_blank">View in GHL →</a>
+        </div>
+
+        <!-- Reply input area -->
+        <div class="ws-input-area">
+          <textarea
+            id="wsReplyInput"
+            class="chat-textarea"
+            placeholder="Type a reply…"
+            rows="2"
+          ></textarea>
+          <div class="ws-input-actions">
+            <button class="btn-cyan ws-action-btn" id="btnAddNote">Add note</button>
+            <button class="btn-gold ws-action-btn" id="btnSendReply">Send reply</button>
+          </div>
+        </div>
+
+      </div><!-- /.workspace-content -->
+
+    </section>
+
+  </div><!-- /.control-app -->
+
+  <!-- =====================================================================
+       Inline Script
+       ===================================================================== -->
+  <script>
+    // -----------------------------------------------------------------------
+    // Demo mode guard
+    // -----------------------------------------------------------------------
+    const IS_DEMO = true; // Vite replaces with import.meta.env.VITE_DEMO_MODE at build time
+
+    // -----------------------------------------------------------------------
+    // Demo seed data
+    // -----------------------------------------------------------------------
+    const DEMO_DATA = {
+      tickets: [
+        {
+          id: 'T-DEMO04', ghlOpportunityId: 'opp-04',
+          title: 'Pipeline stage not updating after call',
+          status: 'in_progress', priority: 'urgent', category: 'technical',
+          slaDeadline: new Date(Date.now() + 55 * 60 * 1000),
+          assignedTo: 'CL',
+          contact: { name: 'Marcus Reid', plan: 'Pro', mrr: 497, memberSince: '2024-06-01', pastTickets: 3, ghlId: 'contact-04' },
+          aiSummary: {
+            problem: 'Pipeline stage fails to update after call dispositions are logged. Affects all reps across the account.',
+            category: 'technical', priority: 'urgent',
+            suggestedAction: 'Check GHL webhook configuration and verify call disposition triggers are mapped to the correct pipeline stage IDs.',
+          },
+        },
+        {
+          id: 'T-DEMO01', ghlOpportunityId: 'opp-01',
+          title: 'Automation not triggering on new lead',
+          status: 'in_progress', priority: 'high', category: 'technical',
+          slaDeadline: new Date(Date.now() + 4 * 60 * 60 * 1000),
+          assignedTo: 'AV',
+          contact: { name: 'Sofia Reyes', plan: 'Growth', mrr: 297, memberSince: '2024-09-15', pastTickets: 1, ghlId: 'contact-01' },
+          aiSummary: {
+            problem: 'Welcome email automation stopped firing for new leads. Issue started approximately 2 hours ago.',
+            category: 'technical', priority: 'high',
+            suggestedAction: 'Review workflow trigger settings and check if a recent system update paused the workflow.',
+          },
+        },
+        {
+          id: 'T-DEMO02', ghlOpportunityId: 'opp-02',
+          title: 'Invoice shows incorrect amount',
+          status: 'waiting_client', priority: 'medium', category: 'billing',
+          slaDeadline: new Date(Date.now() + 20 * 60 * 60 * 1000),
+          assignedTo: null,
+          contact: { name: 'Daniel Torres', plan: 'Starter', mrr: 97, memberSince: '2025-01-10', pastTickets: 0, ghlId: 'contact-02' },
+          aiSummary: {
+            problem: 'Client reports invoice amount does not match their expected plan pricing.',
+            category: 'billing', priority: 'medium',
+            suggestedAction: 'Pull latest invoice from billing system, verify plan tier and any recent upgrades or proration.',
+          },
+        },
+        {
+          id: 'T-DEMO05', ghlOpportunityId: 'opp-05',
+          title: 'Need to cancel current plan',
+          status: 'waiting_internal', priority: 'medium', category: 'billing',
+          slaDeadline: new Date(Date.now() + 12 * 60 * 60 * 1000),
+          assignedTo: 'LF',
+          contact: { name: 'Priya Nair', plan: 'Pro', mrr: 497, memberSince: '2023-11-22', pastTickets: 2, ghlId: 'contact-05' },
+          aiSummary: {
+            problem: 'Client wants to cancel their Pro plan. Reason: switching to in-house solution.',
+            category: 'billing', priority: 'medium',
+            suggestedAction: 'Assign to account manager for retention call before processing cancellation.',
+          },
+        },
+        {
+          id: 'T-DEMO03', ghlOpportunityId: 'opp-03',
+          title: 'How do I add a team member?',
+          status: 'resolved', priority: 'low', category: 'general',
+          slaDeadline: new Date(Date.now() - 2 * 60 * 60 * 1000),
+          assignedTo: 'AV',
+          contact: { name: 'Kevin Park', plan: 'Starter', mrr: 97, memberSince: '2025-03-05', pastTickets: 0, ghlId: 'contact-03' },
+          aiSummary: {
+            problem: 'Client unsure how to add additional team members to their account.',
+            category: 'general', priority: 'low',
+            suggestedAction: 'Send knowledge base article on team member management. Mark resolved after confirmation.',
+          },
+        },
+      ],
+      messages: {
+        'T-DEMO04': [
+          { id: 'm1', role: 'client',  content: 'Pipeline stages are not updating after our reps log a call. This has been happening all morning.', isInternal: false, createdAt: new Date(Date.now() - 50 * 60000) },
+          { id: 'm2', role: 'ai',      content: 'This sounds urgent — pipeline stage failures can block your whole team's workflow. Is this happening for all reps or specific ones?', isInternal: false, createdAt: new Date(Date.now() - 49 * 60000) },
+          { id: 'm3', role: 'client',  content: 'All reps. Every call logged, the stage just stays where it was.', isInternal: false, createdAt: new Date(Date.now() - 47 * 60000) },
+          { id: 'm4', role: 'agent',   content: 'I'm looking into the webhook configuration now. Stand by.', isInternal: false, createdAt: new Date(Date.now() - 20 * 60000) },
+          { id: 'm5', role: 'agent',   content: 'INTERNAL: Webhook endpoint returning 500 on GHL side. Escalating to GHL support if not resolved in 30 min.', isInternal: true, createdAt: new Date(Date.now() - 18 * 60000) },
+        ],
+        'T-DEMO01': [
+          { id: 'm6', role: 'client', content: 'The new lead welcome email workflow stopped firing about 2 hours ago.', isInternal: false, createdAt: new Date(Date.now() - 30 * 60000) },
+          { id: 'm7', role: 'ai',     content: 'Got it. I've created a ticket and flagged this as high priority. An agent will review the workflow logs.', isInternal: false, createdAt: new Date(Date.now() - 29 * 60000) },
+          { id: 'm8', role: 'agent',  content: 'Workflow was paused by a system update. Re-enabling now — should fire within 5 minutes.', isInternal: false, createdAt: new Date(Date.now() - 10 * 60000) },
+        ],
+      },
+    };
+
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    let activeFilter = { type: 'priority', value: 'urgent' };
+    let activeTicketId = null;
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+    const PRIORITY_COLORS = {
+      urgent: '#ff1744',
+      high:   '#ff9100',
+      medium: '#00e5ff',
+      low:    '#8fa4b5',
+    };
+
+    function slaLabel(deadline) {
+      const ms = new Date(deadline) - Date.now();
+      if (ms < 0) return 'Overdue';
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function slaIsUrgent(deadline) {
+      return (new Date(deadline) - Date.now()) < 3600000;
+    }
+
+    function formatDate(str) {
+      return new Date(str).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function formatTime(date) {
+      return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatMRR(val) {
+      return val != null ? `$${val.toLocaleString()}/mo` : '—';
+    }
+
+    function statusIsWaiting(s) {
+      return s === 'waiting_client' || s === 'waiting_internal';
+    }
+
+    // -----------------------------------------------------------------------
+    // Counts
+    // -----------------------------------------------------------------------
+    function updateCounts(tickets) {
+      const counts = {
+        urgent: 0, high: 0, unassigned: 0,
+        billing: 0, technical: 0, general: 0,
+        in_progress: 0, waiting: 0, resolved: 0,
+      };
+      tickets.forEach(t => {
+        if (t.priority === 'urgent')           counts.urgent++;
+        if (t.priority === 'high')             counts.high++;
+        if (!t.assignedTo)                     counts.unassigned++;
+        if (t.category === 'billing')          counts.billing++;
+        if (t.category === 'technical')        counts.technical++;
+        if (t.category === 'general')          counts.general++;
+        if (t.status === 'in_progress')        counts.in_progress++;
+        if (statusIsWaiting(t.status))         counts.waiting++;
+        if (t.status === 'resolved' || t.status === 'closed') counts.resolved++;
+      });
+      Object.keys(counts).forEach(k => {
+        const el = document.getElementById(`count-${k}`);
+        if (el) el.textContent = counts[k];
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Render ticket list
+    // -----------------------------------------------------------------------
+    function filterTickets(tickets) {
+      if (!activeFilter) return tickets;
+      return tickets.filter(t => {
+        if (activeFilter.type === 'priority')  return t.priority === activeFilter.value;
+        if (activeFilter.type === 'category')  return t.category === activeFilter.value;
+        if (activeFilter.type === 'status') {
+          if (activeFilter.value === 'waiting') return statusIsWaiting(t.status);
+          return t.status === activeFilter.value;
+        }
+        return true;
+      });
+    }
+
+    function renderTicketList(tickets) {
+      const list = document.getElementById('ticketList');
+      list.innerHTML = '';
+      const filtered = filterTickets(tickets);
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div class="ticket-list-empty">No tickets match this filter.</div>';
+        return;
+      }
+
+      filtered.forEach(ticket => {
+        const row = document.createElement('button');
+        row.className = 'ticket-row' + (ticket.id === activeTicketId ? ' active' : '');
+        row.dataset.ticketId = ticket.id;
+
+        const urgent = slaIsUrgent(ticket.slaDeadline);
+
+        row.innerHTML = `
+          <div class="ticket-row-top">
+            <span class="priority-dot" style="background:${PRIORITY_COLORS[ticket.priority] || '#8fa4b5'}"></span>
+            <span class="ticket-row-contact">${ticket.contact?.name ?? 'Unknown'}</span>
+            ${ticket.assignedTo
+              ? `<span class="agent-avatar">${ticket.assignedTo}</span>`
+              : '<span class="agent-avatar unassigned">—</span>'}
+          </div>
+          <div class="ticket-row-snippet">${ticket.title}</div>
+          <div class="ticket-row-bottom">
+            <span class="badge-pill badge-cyan ticket-cat-badge">${ticket.category}</span>
+            <span class="sla-timer ${urgent ? 'sla-urgent' : ''}">${slaLabel(ticket.slaDeadline)}</span>
+          </div>
+        `;
+
+        row.addEventListener('click', () => loadWorkspace(ticket));
+        list.appendChild(row);
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Load workspace
+    // -----------------------------------------------------------------------
+    function loadWorkspace(ticket) {
+      activeTicketId = ticket.id;
+
+      // Header
+      document.getElementById('wsTicketId').textContent = ticket.id;
+      document.getElementById('wsSubject').textContent = ticket.title;
+
+      // AI Summary
+      const s = ticket.aiSummary;
+      document.getElementById('aiCategory').textContent   = s?.category ?? '—';
+      document.getElementById('aiPriority').textContent   = s?.priority ?? '—';
+      document.getElementById('aiSLA').textContent        = slaLabel(ticket.slaDeadline);
+      document.getElementById('aiSummaryText').textContent = s?.problem ?? 'No summary available.';
+
+      // Context strip
+      const c = ticket.contact;
+      document.getElementById('ctxName').textContent        = c?.name ?? '—';
+      document.getElementById('ctxPlanBadge').textContent   = c?.plan ?? '—';
+      document.getElementById('ctxMRR').textContent         = formatMRR(c?.mrr);
+      document.getElementById('ctxSince').textContent       = c?.memberSince ? formatDate(c.memberSince) : '—';
+      document.getElementById('ctxPastTickets').textContent = c?.pastTickets ?? 0;
+      document.getElementById('ctxGHLLink').href            = c?.ghlId
+        ? `https://app.gohighlevel.com/contacts/${c.ghlId}`
+        : '#';
+
+      // Thread
+      const messages = (IS_DEMO ? DEMO_DATA.messages[ticket.id] : null) || [];
+      renderWsThread(messages);
+
+      // Show workspace
+      document.getElementById('workspaceEmpty').classList.add('hidden');
+      const content = document.getElementById('workspaceContent');
+      content.classList.remove('hidden');
+      content.style.opacity = '0';
+      requestAnimationFrame(() => {
+        content.style.transition = 'opacity 0.2s ease';
+        content.style.opacity = '1';
+      });
+
+      // Re-render ticket list to update active highlight
+      renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+    }
+
+    // -----------------------------------------------------------------------
+    // Render workspace thread
+    // -----------------------------------------------------------------------
+    function renderWsThread(messages) {
+      const thread = document.getElementById('wsThread');
+      thread.innerHTML = '';
+      messages.forEach(msg => {
+        const el = document.createElement('div');
+        el.className = `ws-bubble bubble-${msg.role}${msg.isInternal ? ' bubble-internal' : ''}`;
+        el.innerHTML = `
+          ${msg.isInternal ? '<div class="internal-label">🔒 INTERNAL</div>' : ''}
+          <div class="bubble-content">${msg.content}</div>
+          <div class="bubble-meta">${msg.role === 'ai' ? 'LegacyZero' : msg.role} · ${formatTime(msg.createdAt)}</div>
+        `;
+        thread.appendChild(el);
+      });
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    // -----------------------------------------------------------------------
+    // Queue filter click
+    // -----------------------------------------------------------------------
+    document.querySelectorAll('.queue-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        activeFilter = { type: item.dataset.filter, value: item.dataset.value };
+        renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Textarea auto-resize
+    // -----------------------------------------------------------------------
+    const replyInput = document.getElementById('wsReplyInput');
+    replyInput.addEventListener('input', () => {
+      replyInput.style.height = 'auto';
+      replyInput.style.height = Math.min(replyInput.scrollHeight, 160) + 'px';
+    });
+
+    // -----------------------------------------------------------------------
+    // Action button stubs (wired in future batch)
+    // -----------------------------------------------------------------------
+    ['btnAssign','btnEscalate','btnResolve','btnClose','btnAddNote','btnSendReply'].forEach(id => {
+      document.getElementById(id)?.addEventListener('click', () => {
+        // Action handlers wired in future batch
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Init
+    // -----------------------------------------------------------------------
+    if (IS_DEMO) {
+      updateCounts(DEMO_DATA.tickets);
+      renderTicketList(DEMO_DATA.tickets);
+      // Auto-load first urgent ticket
+      const first = DEMO_DATA.tickets.find(t => t.priority === 'urgent');
+      if (first) loadWorkspace(first);
+    }
+  </script>
+
 </body>
 </html>
