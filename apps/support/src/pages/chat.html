@@ -55,7 +55,7 @@
           <h1 class="welcome-title">Hi, I'm <span class="text-gold">LegacyZero</span></h1>
           <p class="welcome-subtitle">Tell me what's going on — I'll help you right away.</p>
 
-          <div class="welcome-input-wrap">
+          <div class="welcome-input-wrap" id="welcomeInputWrap">
             <textarea
               id="welcomeInput"
               class="chat-textarea"
@@ -285,7 +285,276 @@
     }
 
     // -----------------------------------------------------------------------
-    // Quick action pills
+    // Intake state — conversation before a ticket exists
+    // -----------------------------------------------------------------------
+    let intakeMessages = [];   // { role, content, isInternal, createdAt }
+    let aiResponseCount = 0;   // tracks # of AI turns in current intake
+    let isSending = false;     // debounce guard
+
+    // -----------------------------------------------------------------------
+    // Demo: mock AI responses (no live API call)
+    // -----------------------------------------------------------------------
+    const DEMO_AI_RESPONSES = [
+      "Thanks for reaching out. Can you tell me a bit more about the issue — when did it start and what exactly are you seeing?",
+      "Got it. Is this affecting just you, or others on your team too?",
+      "I have enough context now. I've flagged this as a priority issue and created a support ticket. An agent will follow up shortly — you can track progress right here.",
+    ];
+
+    const DEMO_TRIAGE_RESULT = {
+      category: 'technical',
+      priority: 'medium',
+      problem: 'User-reported issue collected during intake conversation.',
+      suggestedAction: 'Agent to review and follow up based on conversation context.',
+    };
+
+    async function mockAIResponse(index) {
+      await new Promise(r => setTimeout(r, 400));
+      return DEMO_AI_RESPONSES[Math.min(index, DEMO_AI_RESPONSES.length - 1)];
+    }
+
+    // -----------------------------------------------------------------------
+    // Append a bubble to the welcome intake thread
+    // (welcome state shows messages directly above the input)
+    // -----------------------------------------------------------------------
+    function appendIntakeBubble(role, content) {
+      const wrap = document.getElementById('welcomeInputWrap');
+      let thread = document.getElementById('intakeThread');
+      if (!thread) {
+        thread = document.createElement('div');
+        thread.id = 'intakeThread';
+        thread.className = 'intake-thread';
+        wrap.parentElement.insertBefore(thread, wrap);
+      }
+      const el = document.createElement('div');
+      el.className = `message-bubble bubble-${role}`;
+      el.innerHTML = `
+        <div class="bubble-content">${content}</div>
+        <div class="bubble-meta">${role === 'ai' ? 'LegacyZero' : role} · ${formatTime(new Date())}</div>
+      `;
+      thread.appendChild(el);
+      thread.scrollTop = thread.scrollHeight;
+      return el;
+    }
+
+    // -----------------------------------------------------------------------
+    // Show typing indicator
+    // -----------------------------------------------------------------------
+    function showTyping(parentId) {
+      const thread = document.getElementById(parentId);
+      const el = document.createElement('div');
+      el.id = 'typingIndicator';
+      el.className = 'message-bubble bubble-ai typing-indicator';
+      el.innerHTML = `<div class="bubble-content"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+      if (thread) thread.appendChild(el);
+      return el;
+    }
+
+    function removeTyping() {
+      document.getElementById('typingIndicator')?.remove();
+    }
+
+    // -----------------------------------------------------------------------
+    // setSending — disable/enable inputs during async ops
+    // -----------------------------------------------------------------------
+    function setSending(val) {
+      isSending = val;
+      document.getElementById('welcomeSendBtn').disabled = val;
+      document.getElementById('welcomeInput').disabled = val;
+      document.getElementById('threadSendBtn').disabled = val;
+      document.getElementById('threadInput').disabled = val;
+    }
+
+    // -----------------------------------------------------------------------
+    // INTAKE FLOW — welcome state send
+    // -----------------------------------------------------------------------
+    async function handleWelcomeSend() {
+      if (isSending) return;
+      const input = document.getElementById('welcomeInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = '';
+      input.style.height = '';
+      setSending(true);
+
+      // 1. Append client message
+      const clientMsg = { id: `intake-${Date.now()}`, role: 'client', content: text, isInternal: false, createdAt: new Date() };
+      intakeMessages.push(clientMsg);
+      appendIntakeBubble('client', text);
+
+      // 2. Show typing indicator
+      let thread = document.getElementById('intakeThread');
+      showTyping('intakeThread');
+
+      try {
+        // 3. Get AI reply
+        let aiText;
+        if (IS_DEMO) {
+          aiText = await mockAIResponse(aiResponseCount);
+        } else {
+          const { continueConversation } = await import('../services/legacyzero.js');
+          aiText = await continueConversation(intakeMessages, text);
+        }
+
+        removeTyping();
+        aiResponseCount++;
+
+        const aiMsg = { id: `intake-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
+        intakeMessages.push(aiMsg);
+        appendIntakeBubble('ai', aiText);
+
+        // 4. After 3rd AI response → triage + create ticket → switch to thread mode
+        if (aiResponseCount >= 3) {
+          await createTicketFromIntake();
+        }
+
+      } catch (err) {
+        removeTyping();
+        appendIntakeBubble('ai', 'Sorry, something went wrong. Please try again.');
+        console.error('[Intake] Error:', err);
+      } finally {
+        setSending(false);
+        input.focus();
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Create ticket from intake conversation
+    // -----------------------------------------------------------------------
+    async function createTicketFromIntake() {
+      const firstClientMsg = intakeMessages.find(m => m.role === 'client');
+      const title = firstClientMsg?.content.slice(0, 80) ?? 'New support request';
+
+      let triage;
+      if (IS_DEMO) {
+        await new Promise(r => setTimeout(r, 300));
+        triage = DEMO_TRIAGE_RESULT;
+      } else {
+        const { triageConversation } = await import('../services/legacyzero.js');
+        triage = await triageConversation(intakeMessages);
+      }
+
+      let newTicket;
+      if (IS_DEMO) {
+        // Synthesize a demo ticket from triage result
+        newTicket = {
+          id: `T-${Date.now().toString(36).toUpperCase()}`,
+          ghlOpportunityId: `opp-${Date.now()}`,
+          title,
+          category: triage.category,
+          priority: triage.priority,
+          status: 'new',
+          slaDeadline: new Date(Date.now() + 48 * 60 * 60 * 1000),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        // Seed messages from intake
+        DEMO_DATA.messages[newTicket.id] = [...intakeMessages];
+        DEMO_DATA.tickets.unshift(newTicket);
+      } else {
+        const { createTicket } = await import('../services/ghl.js');
+        newTicket = await createTicket({
+          contactId: 'unknown', // real contactId injected post-auth
+          title,
+          category: triage.category,
+          priority: triage.priority,
+          summary: triage.problem,
+        });
+      }
+
+      // Reset intake state
+      intakeMessages = [];
+      aiResponseCount = 0;
+
+      // Switch to thread mode and load new ticket
+      renderSidebar(IS_DEMO ? DEMO_DATA.tickets : [newTicket]);
+      loadTicket(newTicket);
+
+      // Clean up intake thread DOM
+      document.getElementById('intakeThread')?.remove();
+    }
+
+    // -----------------------------------------------------------------------
+    // THREAD FLOW — thread mode send
+    // -----------------------------------------------------------------------
+    async function handleThreadSend() {
+      if (isSending || !activeTicketId) return;
+      const input = document.getElementById('threadInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = '';
+      input.style.height = '';
+      setSending(true);
+
+      // Get current thread messages
+      const currentMessages = (IS_DEMO ? DEMO_DATA.messages[activeTicketId] : null) || [];
+
+      const clientMsg = { id: `msg-${Date.now()}`, role: 'client', content: text, isInternal: false, createdAt: new Date() };
+
+      // Append client bubble to DOM immediately
+      appendThreadBubble('client', text);
+
+      // Persist (demo: append to DEMO_DATA in-memory)
+      if (IS_DEMO) {
+        if (!DEMO_DATA.messages[activeTicketId]) DEMO_DATA.messages[activeTicketId] = [];
+        DEMO_DATA.messages[activeTicketId].push(clientMsg);
+      } else {
+        const { addMessage } = await import('../services/supabase.js');
+        await addMessage(activeTicketId, 'client', text, false);
+      }
+
+      // AI reply
+      showTyping('messageThread');
+
+      try {
+        let aiText;
+        if (IS_DEMO) {
+          aiText = await mockAIResponse(Math.floor(Math.random() * 2));
+        } else {
+          const { continueConversation } = await import('../services/legacyzero.js');
+          aiText = await continueConversation([...currentMessages, clientMsg], text);
+        }
+
+        removeTyping();
+
+        const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
+        appendThreadBubble('ai', aiText);
+
+        if (IS_DEMO) {
+          DEMO_DATA.messages[activeTicketId].push(aiMsg);
+        } else {
+          const { addMessage } = await import('../services/supabase.js');
+          await addMessage(activeTicketId, 'ai', aiText, false);
+        }
+
+      } catch (err) {
+        removeTyping();
+        appendThreadBubble('ai', 'Sorry, something went wrong. Please try again.');
+        console.error('[Thread] Error:', err);
+      } finally {
+        setSending(false);
+        input.focus();
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Append bubble to thread mode (active ticket thread)
+    // -----------------------------------------------------------------------
+    function appendThreadBubble(role, content) {
+      const thread = document.getElementById('messageThread');
+      const el = document.createElement('div');
+      el.className = `message-bubble bubble-${role}`;
+      el.innerHTML = `
+        <div class="bubble-content">${content}</div>
+        <div class="bubble-meta">${role === 'ai' ? 'LegacyZero' : role} · ${formatTime(new Date())}</div>
+      `;
+      thread.appendChild(el);
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    // -----------------------------------------------------------------------
+    // Quick action pills — insert prompt text into thread input
     // -----------------------------------------------------------------------
     document.querySelectorAll('.quick-pill').forEach(pill => {
       pill.addEventListener('click', () => {
@@ -296,29 +565,20 @@
     });
 
     // -----------------------------------------------------------------------
-    // Send button (thread mode) — stub, wired in future batch
+    // Wire send buttons
     // -----------------------------------------------------------------------
-    document.getElementById('threadSendBtn').addEventListener('click', () => {
-      const input = document.getElementById('threadInput');
-      const text = input.value.trim();
-      if (!text) return;
-      // Live sending wired in future batch
-      input.value = '';
+    document.getElementById('welcomeSendBtn').addEventListener('click', handleWelcomeSend);
+    document.getElementById('welcomeInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleWelcomeSend(); }
+    });
+
+    document.getElementById('threadSendBtn').addEventListener('click', handleThreadSend);
+    document.getElementById('threadInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleThreadSend(); }
     });
 
     // -----------------------------------------------------------------------
-    // Send button (welcome mode) — stub, wired in future batch
-    // -----------------------------------------------------------------------
-    document.getElementById('welcomeSendBtn').addEventListener('click', () => {
-      const input = document.getElementById('welcomeInput');
-      const text = input.value.trim();
-      if (!text) return;
-      // Conversation loop wired in future batch
-      input.value = '';
-    });
-
-    // -----------------------------------------------------------------------
-    // Auto-resize textarea
+    // Auto-resize textareas
     // -----------------------------------------------------------------------
     ['threadInput', 'welcomeInput'].forEach(id => {
       const el = document.getElementById(id);
