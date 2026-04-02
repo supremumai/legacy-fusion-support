@@ -153,6 +153,12 @@
   flex-shrink: 0;
 }
 
+.ticket-list-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .ticket-list-title {
   font-family: var(--font-ui);
   font-weight: 700;

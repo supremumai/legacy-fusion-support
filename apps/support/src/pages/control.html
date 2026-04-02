@@ -10,9 +10,36 @@
 <body>
 
   <!-- =====================================================================
-       Control App Shell — 3-panel layout
+       Agent Login Screen (hidden after auth)
        ===================================================================== -->
-  <div class="control-app">
+  <div class="login-screen" id="agentLogin">
+    <div class="login-card glass-card">
+      <div class="login-logo">
+        <span class="login-glyph">⬡</span>
+      </div>
+      <h1 class="login-title">Agent <span class="text-cyan">Control Center</span></h1>
+      <p class="login-subtitle">Sign in with your agent credentials.</p>
+
+      <div id="agentLoginForm">
+        <input type="email"    id="agentEmail"    class="login-input" placeholder="agent@legacyfusion.ai" autocomplete="email" />
+        <input type="password" id="agentPassword" class="login-input" placeholder="Password" autocomplete="current-password" />
+        <button class="btn-gold login-btn" id="agentLoginBtn">Sign In</button>
+        <p class="login-error hidden" id="agentLoginError"></p>
+      </div>
+
+      <!-- Access denied state -->
+      <div class="login-denied hidden" id="agentDenied">
+        <span class="denied-icon">🔒</span>
+        <p class="confirm-text">Access denied — agent role required.</p>
+        <button class="btn-cyan login-btn" id="agentDeniedRetry">Try another account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       Control App Shell — 3-panel layout (hidden until auth)
+       ===================================================================== -->
+  <div class="control-app hidden" id="controlApp">
 
     <!-- -----------------------------------------------------------------
          Panel 1 — Queue Filters (170px)
@@ -86,10 +113,13 @@
 
       <div class="ticket-list-header">
         <span class="ticket-list-title">Support Queue</span>
-        <span class="live-badge">
-          <span class="live-dot"></span>
-          Live
-        </span>
+        <div class="ticket-list-header-right">
+          <span class="live-badge">
+            <span class="live-dot"></span>
+            Live
+          </span>
+          <button class="btn-signout" id="signOutBtn" title="Sign out">↩</button>
+        </div>
       </div>
 
       <div class="ticket-list" id="ticketList">
@@ -213,7 +243,107 @@
     // -----------------------------------------------------------------------
     // Demo mode guard
     // -----------------------------------------------------------------------
-    const IS_DEMO = true; // Vite replaces with import.meta.env.VITE_DEMO_MODE at build time
+    const IS_DEMO = (
+      typeof import !== 'undefined' && typeof import.meta !== 'undefined'
+        ? (import.meta.env?.VITE_DEMO_MODE === 'true')
+        : true
+    );
+
+    // -----------------------------------------------------------------------
+    // Auth — agent (email + password + role check)
+    // -----------------------------------------------------------------------
+    async function initAuth() {
+      if (IS_DEMO) {
+        showControlApp();
+        return;
+      }
+
+      const { getSession, getProfile, signOut: supaSignOut } = await import('../services/supabase.js');
+      const session = await getSession();
+
+      if (!session) {
+        showAgentLogin();
+        return;
+      }
+
+      const profile = await getProfile();
+
+      if (!profile || profile.role !== 'agent') {
+        // Valid session but not an agent — deny access and sign out
+        await supaSignOut();
+        showAgentDenied();
+        return;
+      }
+
+      showControlApp();
+    }
+
+    function showAgentLogin() {
+      document.getElementById('agentLogin').classList.remove('hidden');
+      document.getElementById('controlApp').classList.add('hidden');
+    }
+
+    function showAgentDenied() {
+      document.getElementById('agentLogin').classList.remove('hidden');
+      document.getElementById('agentLoginForm').classList.add('hidden');
+      document.getElementById('agentDenied').classList.remove('hidden');
+      document.getElementById('controlApp').classList.add('hidden');
+    }
+
+    function showControlApp() {
+      document.getElementById('agentLogin').classList.add('hidden');
+      document.getElementById('controlApp').classList.remove('hidden');
+    }
+
+    // Agent login submit
+    document.getElementById('agentLoginBtn').addEventListener('click', async () => {
+      const email    = document.getElementById('agentEmail').value.trim();
+      const password = document.getElementById('agentPassword').value;
+      const errorEl  = document.getElementById('agentLoginError');
+      errorEl.classList.add('hidden');
+      errorEl.textContent = '';
+
+      if (!email || !password) {
+        errorEl.textContent = 'Email and password are required.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+
+      document.getElementById('agentLoginBtn').disabled = true;
+
+      try {
+        const { signInWithPassword } = await import('../services/supabase.js');
+        await signInWithPassword(email, password);
+        // Re-run auth to validate role
+        await initAuth();
+      } catch (err) {
+        errorEl.textContent = err.message ?? 'Sign in failed. Check your credentials.';
+        errorEl.classList.remove('hidden');
+        document.getElementById('agentLoginBtn').disabled = false;
+      }
+    });
+
+    // Enter key on password field
+    document.getElementById('agentPassword').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('agentLoginBtn').click();
+    });
+
+    // Denied retry — reset to login form
+    document.getElementById('agentDeniedRetry').addEventListener('click', () => {
+      document.getElementById('agentLoginForm').classList.remove('hidden');
+      document.getElementById('agentDenied').classList.add('hidden');
+      document.getElementById('agentEmail').value = '';
+      document.getElementById('agentPassword').value = '';
+      document.getElementById('agentLoginBtn').disabled = false;
+    });
+
+    // Sign out
+    document.getElementById('signOutBtn').addEventListener('click', async () => {
+      if (IS_DEMO) return;
+      const { signOut } = await import('../services/supabase.js');
+      await signOut();
+      location.reload();
+    });
 
     // -----------------------------------------------------------------------
     // Demo seed data
@@ -572,13 +702,18 @@
     // -----------------------------------------------------------------------
     // Init
     // -----------------------------------------------------------------------
-    if (IS_DEMO) {
-      updateCounts(DEMO_DATA.tickets);
-      renderTicketList(DEMO_DATA.tickets);
-      // Auto-load first urgent ticket
-      const first = DEMO_DATA.tickets.find(t => t.priority === 'urgent');
-      if (first) loadWorkspace(first);
+    async function init() {
+      await initAuth();
+
+      if (IS_DEMO) {
+        updateCounts(DEMO_DATA.tickets);
+        renderTicketList(DEMO_DATA.tickets);
+        const first = DEMO_DATA.tickets.find(t => t.priority === 'urgent');
+        if (first) loadWorkspace(first);
+      }
     }
+
+    init();
   </script>
 
 </body>

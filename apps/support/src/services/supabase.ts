@@ -3,26 +3,53 @@
  * MIGRATION SQL — run once in Supabase dashboard (SQL Editor)
  * ===========================================================================
  *
+ * Run both blocks below in order.
+ *
+ * -- Block 1: support_messages
  * create table support_messages (
- *   id         uuid        primary key default gen_random_uuid(),
- *   ticket_id  text        not null,
- *   role       text        not null check (role in ('ai', 'client', 'agent')),
- *   content    text        not null,
- *   is_internal boolean    default false,
- *   created_at timestamptz default now()
+ *   id          uuid        primary key default gen_random_uuid(),
+ *   ticket_id   text        not null,
+ *   role        text        not null check (role in ('ai', 'client', 'agent')),
+ *   content     text        not null,
+ *   is_internal boolean     default false,
+ *   created_at  timestamptz default now()
  * );
  *
  * create index on support_messages(ticket_id, created_at);
  *
  * alter table support_messages enable row level security;
  *
- * -- Agents (authenticated users) have full access
  * create policy "agents_full_access" on support_messages
  *   for all using (auth.role() = 'authenticated');
  *
- * -- Clients (anonymous) can only read non-internal messages
  * create policy "clients_own_messages" on support_messages
  *   for select using (is_internal = false);
+ *
+ * -- Block 2: profiles (auth split — Batch 11c)
+ * create table profiles (
+ *   id              uuid primary key references auth.users,
+ *   role            text not null default 'client',
+ *   ghl_contact_id  text
+ * );
+ *
+ * alter table profiles enable row level security;
+ *
+ * create policy "users_read_own_profile" on profiles
+ *   for select using (auth.uid() = id);
+ *
+ * -- Auto-create profile row on user signup:
+ * create or replace function public.handle_new_user()
+ * returns trigger language plpgsql security definer as $$
+ * begin
+ *   insert into public.profiles (id, role)
+ *   values (new.id, 'client');
+ *   return new;
+ * end;
+ * $$;
+ *
+ * create trigger on_auth_user_created
+ *   after insert on auth.users
+ *   for each row execute procedure public.handle_new_user();
  *
  * ===========================================================================
  */
@@ -39,8 +66,21 @@ const DEMO_MODE =
   (import.meta as Record<string, unknown> & { env: Record<string, string> }).env
     .VITE_DEMO_MODE === 'true';
 
+const supabaseUrl = (
+  import.meta as Record<string, unknown> & { env: Record<string, string> }
+).env.VITE_SUPABASE_URL as string;
+
+const supabaseAnonKey = (
+  import.meta as Record<string, unknown> & { env: Record<string, string> }
+).env.VITE_SUPABASE_ANON_KEY as string;
+
 // ---------------------------------------------------------------------------
-// Database row type (matches support_messages schema)
+// Supabase client — stateless, no shared auth context
+// ---------------------------------------------------------------------------
+export const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '');
+
+// ---------------------------------------------------------------------------
+// Types
 // ---------------------------------------------------------------------------
 interface MessageRow {
   id: string;
@@ -51,19 +91,65 @@ interface MessageRow {
   created_at: string;
 }
 
-// ---------------------------------------------------------------------------
-// Supabase client
-// Stateless — instantiated per module load, no shared auth state
-// ---------------------------------------------------------------------------
-const supabaseUrl = (
-  import.meta as Record<string, unknown> & { env: Record<string, string> }
-).env.VITE_SUPABASE_URL as string;
+export interface UserProfile {
+  id: string;
+  role: 'client' | 'agent';
+  ghl_contact_id: string | null;
+}
 
-const supabaseAnonKey = (
-  import.meta as Record<string, unknown> & { env: Record<string, string> }
-).env.VITE_SUPABASE_ANON_KEY as string;
+// ---------------------------------------------------------------------------
+// Auth — getSession
+// Returns current session or null.
+// ---------------------------------------------------------------------------
+export async function getSession() {
+  if (DEMO_MODE) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session;
+}
 
-const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '');
+// ---------------------------------------------------------------------------
+// Auth — getProfile
+// Fetches the current user's profile row from the profiles table.
+// Returns null if no session or profile not found.
+// ---------------------------------------------------------------------------
+export async function getProfile(): Promise<UserProfile | null> {
+  if (DEMO_MODE) return null;
+
+  const session = await getSession();
+  if (!session) return null;
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, role, ghl_contact_id')
+    .eq('id', session.user.id)
+    .single();
+
+  if (error || !data) return null;
+  return data as UserProfile;
+}
+
+// ---------------------------------------------------------------------------
+// Auth — sendMagicLink (customer login)
+// ---------------------------------------------------------------------------
+export async function sendMagicLink(email: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithOtp({ email });
+  if (error) throw new Error(`Magic link failed: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Auth — signInWithPassword (agent login)
+// ---------------------------------------------------------------------------
+export async function signInWithPassword(email: string, password: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(`Sign in failed: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Auth — signOut
+// ---------------------------------------------------------------------------
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
+}
 
 // ---------------------------------------------------------------------------
 // Row → Message
@@ -81,8 +167,6 @@ function rowToMessage(row: MessageRow): Message {
 
 // ---------------------------------------------------------------------------
 // getMessages
-// Returns all messages for a ticket, ordered oldest → newest.
-// RLS ensures clients only receive non-internal rows.
 // ---------------------------------------------------------------------------
 export async function getMessages(ticketId: string): Promise<Message[]> {
   if (DEMO_MODE) {
@@ -95,16 +179,12 @@ export async function getMessages(ticketId: string): Promise<Message[]> {
     .eq('ticket_id', ticketId)
     .order('created_at', { ascending: true });
 
-  if (error) {
-    throw new Error(`getMessages failed: ${error.message}`);
-  }
-
+  if (error) throw new Error(`getMessages failed: ${error.message}`);
   return (data as MessageRow[]).map(rowToMessage);
 }
 
 // ---------------------------------------------------------------------------
 // addMessage
-// Inserts a single message and returns the persisted row.
 // ---------------------------------------------------------------------------
 export async function addMessage(
   ticketId: string,
@@ -113,7 +193,6 @@ export async function addMessage(
   isInternal = false
 ): Promise<Message> {
   if (DEMO_MODE) {
-    // Return a synthetic message — not persisted in demo mode
     const syntheticMsg: Message = {
       id:         `demo-${Date.now()}`,
       ticketId,
@@ -122,70 +201,38 @@ export async function addMessage(
       isInternal,
       createdAt:  new Date(),
     };
-    // Append to in-memory demo messages so the UI reflects it immediately
-    if (!DEMO_DATA.messages[ticketId]) {
-      DEMO_DATA.messages[ticketId] = [];
-    }
+    if (!DEMO_DATA.messages[ticketId]) DEMO_DATA.messages[ticketId] = [];
     DEMO_DATA.messages[ticketId].push(syntheticMsg);
     return syntheticMsg;
   }
 
   const { data, error } = await supabase
     .from('support_messages')
-    .insert({
-      ticket_id:   ticketId,
-      role,
-      content,
-      is_internal: isInternal,
-    })
+    .insert({ ticket_id: ticketId, role, content, is_internal: isInternal })
     .select()
     .single();
 
-  if (error) {
-    throw new Error(`addMessage failed: ${error.message}`);
-  }
-
+  if (error) throw new Error(`addMessage failed: ${error.message}`);
   return rowToMessage(data as MessageRow);
 }
 
 // ---------------------------------------------------------------------------
 // subscribeToTicket
-// Returns a RealtimeChannel subscribed to INSERT events on the given ticket.
-// Caller is responsible for calling channel.unsubscribe() on teardown.
-//
-// In demo mode, returns a no-op mock channel object.
-//
-// Usage:
-//   const channel = subscribeToTicket(ticketId, (msg) => { ... });
-//   // on unmount:
-//   channel.unsubscribe();
 // ---------------------------------------------------------------------------
 export function subscribeToTicket(
   ticketId: string,
   callback: (message: Message) => void
 ): RealtimeChannel {
   if (DEMO_MODE) {
-    // Return a minimal no-op object that satisfies the RealtimeChannel interface
-    return {
-      unsubscribe: () => Promise.resolve('ok' as const),
-    } as unknown as RealtimeChannel;
+    return { unsubscribe: () => Promise.resolve('ok' as const) } as unknown as RealtimeChannel;
   }
 
-  const channel = supabase
+  return supabase
     .channel(`ticket:${ticketId}`)
     .on(
       'postgres_changes',
-      {
-        event:  'INSERT',
-        schema: 'public',
-        table:  'support_messages',
-        filter: `ticket_id=eq.${ticketId}`,
-      },
-      (payload) => {
-        callback(rowToMessage(payload.new as MessageRow));
-      }
+      { event: 'INSERT', schema: 'public', table: 'support_messages', filter: `ticket_id=eq.${ticketId}` },
+      (payload) => callback(rowToMessage(payload.new as MessageRow))
     )
     .subscribe();
-
-  return channel;
 }

@@ -10,9 +10,43 @@
 <body>
 
   <!-- =====================================================================
-       App Shell
+       Login Screen (hidden after auth)
        ===================================================================== -->
-  <div class="chat-app">
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card glass-card">
+      <div class="login-logo">
+        <span class="login-glyph">⬡</span>
+      </div>
+      <h1 class="login-title"><span class="text-gold">LegacyZero</span> Support</h1>
+      <p class="login-subtitle">Enter your email to get started — we'll send you a magic link.</p>
+
+      <!-- Email input state -->
+      <div id="loginInputState">
+        <input
+          type="email"
+          id="loginEmail"
+          class="login-input"
+          placeholder="your@email.com"
+          autocomplete="email"
+        />
+        <button class="btn-gold login-btn" id="loginSendBtn">
+          Send Magic Link
+        </button>
+        <p class="login-error hidden" id="loginError"></p>
+      </div>
+
+      <!-- Confirmation state (shown after send) -->
+      <div class="login-confirm hidden" id="loginConfirm">
+        <span class="confirm-icon">✉️</span>
+        <p class="confirm-text">Check your email — your magic link is on the way.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       App Shell (hidden until auth)
+       ===================================================================== -->
+  <div class="chat-app hidden" id="chatApp">
 
     <!-- -----------------------------------------------------------------
          Sidebar
@@ -23,6 +57,7 @@
           <span class="brand-dot"></span>
           My Tickets
         </span>
+        <button class="btn-signout" id="signOutBtn" title="Sign out">↩</button>
       </div>
 
       <div class="sidebar-group" id="sidebar-open">
@@ -133,6 +168,82 @@
         ? (import.meta.env?.VITE_DEMO_MODE === 'true')
         : true
     );
+
+    // -----------------------------------------------------------------------
+    // Auth — customer (magic link)
+    // -----------------------------------------------------------------------
+    let currentContactId = null; // set after auth, scopes GHL queries
+
+    async function initAuth() {
+      if (IS_DEMO) {
+        // Demo: skip auth, show app immediately with demo contact
+        currentContactId = 'contact-marco';
+        showApp();
+        return;
+      }
+
+      const { getSession, getProfile } = await import('../services/supabase.js');
+      const session = await getSession();
+
+      if (!session) {
+        showLoginScreen();
+        return;
+      }
+
+      const profile = await getProfile();
+      currentContactId = profile?.ghl_contact_id ?? null;
+      showApp();
+    }
+
+    function showLoginScreen() {
+      document.getElementById('loginScreen').classList.remove('hidden');
+      document.getElementById('chatApp').classList.add('hidden');
+    }
+
+    function showApp() {
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('chatApp').classList.remove('hidden');
+    }
+
+    // Magic link send
+    document.getElementById('loginSendBtn').addEventListener('click', async () => {
+      const email = document.getElementById('loginEmail').value.trim();
+      const errorEl = document.getElementById('loginError');
+      errorEl.classList.add('hidden');
+      errorEl.textContent = '';
+
+      if (!email) {
+        errorEl.textContent = 'Please enter your email address.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+
+      document.getElementById('loginSendBtn').disabled = true;
+
+      try {
+        const { sendMagicLink } = await import('../services/supabase.js');
+        await sendMagicLink(email);
+        document.getElementById('loginInputState').classList.add('hidden');
+        document.getElementById('loginConfirm').classList.remove('hidden');
+      } catch (err) {
+        errorEl.textContent = err.message ?? 'Something went wrong. Please try again.';
+        errorEl.classList.remove('hidden');
+        document.getElementById('loginSendBtn').disabled = false;
+      }
+    });
+
+    // Enter key on email input
+    document.getElementById('loginEmail').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('loginSendBtn').click();
+    });
+
+    // Sign out
+    document.getElementById('signOutBtn').addEventListener('click', async () => {
+      if (IS_DEMO) return;
+      const { signOut } = await import('../services/supabase.js');
+      await signOut();
+      location.reload();
+    });
 
     // -----------------------------------------------------------------------
     // Demo seed data (5 tickets, non-internal messages only)
@@ -616,12 +727,17 @@
     // -----------------------------------------------------------------------
     // Init
     // -----------------------------------------------------------------------
-    if (IS_DEMO) {
-      renderSidebar(DEMO_DATA.tickets);
-      // Auto-load first open ticket
-      const first = DEMO_DATA.tickets.find(t => statusGroup(t.status) === 'open');
-      if (first) loadTicket(first);
+    async function init() {
+      await initAuth();
+
+      if (IS_DEMO) {
+        renderSidebar(DEMO_DATA.tickets);
+        const first = DEMO_DATA.tickets.find(t => statusGroup(t.status) === 'open');
+        if (first) loadTicket(first);
+      }
     }
+
+    init();
   </script>
 
 </body>

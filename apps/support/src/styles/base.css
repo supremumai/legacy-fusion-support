@@ -179,3 +179,129 @@ body {
   color: var(--gold);
   text-shadow: 0 0 8px rgba(253, 169, 41, 0.3);
 }
+
+/* ---------------------------------------------------------------------------
+   Auth: Login screen (shared — chat.html + control.html)
+   --------------------------------------------------------------------------- */
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.login-logo {
+  margin-bottom: 4px;
+}
+
+.login-glyph {
+  font-size: 2.2rem;
+  color: var(--cyan);
+  text-shadow: var(--shadow-cyan);
+  line-height: 1;
+}
+
+.login-title {
+  font-family: var(--font-ui);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.login-subtitle {
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+.login-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--cyan-border);
+  border-radius: var(--radius-inner);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  padding: 12px 16px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  margin-bottom: 10px;
+}
+
+.login-input:focus {
+  border-color: rgba(0, 229, 255, 0.35);
+}
+
+.login-input::placeholder {
+  color: var(--text-inactive);
+}
+
+.login-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.login-error {
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  color: #ff5252;
+  margin-top: 6px;
+}
+
+.login-confirm,
+.login-denied {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.confirm-icon,
+.denied-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.confirm-text {
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------------------
+   Sign-out button (top-right in sidebar/header)
+   --------------------------------------------------------------------------- */
+.btn-signout {
+  background: transparent;
+  border: 1px solid rgba(0, 229, 255, 0.15);
+  color: var(--text-inactive);
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
+  flex-shrink: 0;
+}
+
+.btn-signout:hover {
+  border-color: rgba(0, 229, 255, 0.35);
+  color: var(--text-secondary);
+}
