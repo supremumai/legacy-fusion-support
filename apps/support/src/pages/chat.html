@@ -172,7 +172,8 @@
     // -----------------------------------------------------------------------
     // Auth — customer (magic link)
     // -----------------------------------------------------------------------
-    let currentContactId = null; // set after auth, scopes GHL queries
+    let currentContactId = null;  // set after auth, scopes GHL queries
+    let currentLocationId = 'location-demo'; // default; overwritten after auth
 
     async function initAuth() {
       if (IS_DEMO) {
@@ -191,7 +192,8 @@
       }
 
       const profile = await getProfile();
-      currentContactId = profile?.ghl_contact_id ?? null;
+      currentContactId  = profile?.ghl_contact_id ?? null;
+      currentLocationId = profile?.location_id ?? '';
       showApp();
     }
 
@@ -390,8 +392,7 @@
       if (IS_DEMO) return; // no-op in demo mode (supabase.ts returns mock channel)
 
       const { subscribeToTicket: subscribe } = await import('../services/supabase.js');
-      activeChannel = subscribe(ticketId, (message) => {
-        // Only render if this message came from the server (not our own send)
+      activeChannel = subscribe(ticketId, currentLocationId, (message) => {
         appendThreadBubble(message.role, message.content);
         document.getElementById('messageThread').scrollTop =
           document.getElementById('messageThread').scrollHeight;
@@ -637,7 +638,7 @@
         DEMO_DATA.messages[activeTicketId].push(clientMsg);
       } else {
         const { addMessage } = await import('../services/supabase.js');
-        await addMessage(activeTicketId, 'client', text, false);
+        await addMessage(activeTicketId, 'client', text, currentLocationId, false);
       }
 
       // AI reply
@@ -661,7 +662,7 @@
           DEMO_DATA.messages[activeTicketId].push(aiMsg);
         } else {
           const { addMessage } = await import('../services/supabase.js');
-          await addMessage(activeTicketId, 'ai', aiText, false);
+          await addMessage(activeTicketId, 'ai', aiText, currentLocationId, false);
         }
 
       } catch (err) {

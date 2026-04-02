@@ -269,12 +269,12 @@
       const profile = await getProfile();
 
       if (!profile || profile.role !== 'agent') {
-        // Valid session but not an agent — deny access and sign out
         await supaSignOut();
         showAgentDenied();
         return;
       }
 
+      currentLocationId = profile.location_id ?? '';
       showControlApp();
     }
 
@@ -437,7 +437,8 @@
     // -----------------------------------------------------------------------
     let activeFilter = { type: 'priority', value: 'urgent' };
     let activeTicketId = null;
-    let activeChannel = null;  // current Supabase realtime channel
+    let activeChannel = null;        // current Supabase realtime channel
+    let currentLocationId = 'location-demo'; // overwritten after auth
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -569,7 +570,7 @@
       if (IS_DEMO) return; // no-op in demo (supabase.ts returns mock channel)
 
       const { subscribeToTicket } = await import('../services/supabase.js');
-      activeChannel = subscribeToTicket(ticketId, (message) => {
+      activeChannel = subscribeToTicket(ticketId, currentLocationId, (message) => {
         // Append new message to workspace thread
         appendWsBubbleFromMessage(message);
         document.getElementById('wsThread').scrollTop =
