@@ -189,6 +189,7 @@
     // State
     // -----------------------------------------------------------------------
     let activeTicketId = null;
+    let activeChannel = null;  // current Supabase realtime channel
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -266,9 +267,30 @@
     }
 
     // -----------------------------------------------------------------------
+    // Realtime subscription helpers
+    // -----------------------------------------------------------------------
+    async function subscribeToTicket(ticketId) {
+      // Unsubscribe from previous channel before subscribing to new one
+      if (activeChannel) {
+        try { await activeChannel.unsubscribe(); } catch (_) {}
+        activeChannel = null;
+      }
+
+      if (IS_DEMO) return; // no-op in demo mode (supabase.ts returns mock channel)
+
+      const { subscribeToTicket: subscribe } = await import('../services/supabase.js');
+      activeChannel = subscribe(ticketId, (message) => {
+        // Only render if this message came from the server (not our own send)
+        appendThreadBubble(message.role, message.content);
+        document.getElementById('messageThread').scrollTop =
+          document.getElementById('messageThread').scrollHeight;
+      });
+    }
+
+    // -----------------------------------------------------------------------
     // Load ticket into thread view
     // -----------------------------------------------------------------------
-    function loadTicket(ticket) {
+    async function loadTicket(ticket) {
       activeTicketId = ticket.id;
 
       document.getElementById('activeTicketId').textContent = ticket.id;
@@ -282,6 +304,9 @@
       document.getElementById('threadState').classList.remove('hidden');
 
       renderSidebar(IS_DEMO ? DEMO_DATA.tickets : []);
+
+      // Subscribe to realtime updates for this ticket
+      await subscribeToTicket(ticket.id);
     }
 
     // -----------------------------------------------------------------------

@@ -307,6 +307,7 @@
     // -----------------------------------------------------------------------
     let activeFilter = { type: 'priority', value: 'urgent' };
     let activeTicketId = null;
+    let activeChannel = null;  // current Supabase realtime channel
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -426,9 +427,54 @@
     }
 
     // -----------------------------------------------------------------------
+    // Realtime subscription helpers
+    // -----------------------------------------------------------------------
+    async function subscribeToWorkspaceTicket(ticketId) {
+      // Unsubscribe from previous channel before subscribing to new one
+      if (activeChannel) {
+        try { await activeChannel.unsubscribe(); } catch (_) {}
+        activeChannel = null;
+      }
+
+      if (IS_DEMO) return; // no-op in demo (supabase.ts returns mock channel)
+
+      const { subscribeToTicket } = await import('../services/supabase.js');
+      activeChannel = subscribeToTicket(ticketId, (message) => {
+        // Append new message to workspace thread
+        appendWsBubbleFromMessage(message);
+        document.getElementById('wsThread').scrollTop =
+          document.getElementById('wsThread').scrollHeight;
+
+        // Flash the ticket row in Panel 2 if message is from client
+        if (message.role === 'client') {
+          flashTicketRow(ticketId);
+        }
+      });
+    }
+
+    function appendWsBubbleFromMessage(message) {
+      const thread = document.getElementById('wsThread');
+      const el = document.createElement('div');
+      el.className = `ws-bubble bubble-${message.role}${message.isInternal ? ' bubble-internal' : ''}`;
+      el.innerHTML = `
+        ${message.isInternal ? '<div class="internal-label">🔒 INTERNAL</div>' : ''}
+        <div class="bubble-content">${message.content}</div>
+        <div class="bubble-meta">${message.role === 'ai' ? 'LegacyZero' : message.role} · ${formatTime(message.createdAt)}</div>
+      `;
+      thread.appendChild(el);
+    }
+
+    function flashTicketRow(ticketId) {
+      const row = document.querySelector(`.ticket-row[data-ticket-id="${ticketId}"]`);
+      if (!row) return;
+      row.classList.add('flash-cyan');
+      setTimeout(() => row.classList.remove('flash-cyan'), 1000);
+    }
+
+    // -----------------------------------------------------------------------
     // Load workspace
     // -----------------------------------------------------------------------
-    function loadWorkspace(ticket) {
+    async function loadWorkspace(ticket) {
       activeTicketId = ticket.id;
 
       // Header
@@ -469,6 +515,9 @@
 
       // Re-render ticket list to update active highlight
       renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+
+      // Subscribe to realtime updates for this ticket
+      await subscribeToWorkspaceTicket(ticket.id);
     }
 
     // -----------------------------------------------------------------------
