@@ -20,8 +20,11 @@ vars = { SUPPORT_CORS_ORIGIN = "https://support.legacyfusion.ai" }
 #   wrangler secret put SUPPORT_CORS_ORIGIN    (if overriding [vars] above)
 #
 # Secret names (for reference only — no values here):
-#   GHL_API_KEY         — GoHighLevel private API token
-#   GHL_PIPELINE_ID     — GHL pipeline ID for the support pipeline
-#   GHL_LOCATION_ID     — GHL location/sub-account ID
-#   SUPPORT_CORS_ORIGIN — Allowed origin for CORS enforcement
+#   GHL_API_KEY                — GoHighLevel private API token
+#   GHL_PIPELINE_ID            — GHL pipeline ID for the support pipeline
+#   GHL_LOCATION_ID            — GHL location/sub-account ID
+#   SUPPORT_CORS_ORIGIN        — Allowed origin for CORS enforcement
+#   GHL_WEBHOOK_SECRET         — HMAC-SHA256 secret from GHL webhook config
+#   SUPABASE_URL               — Supabase project URL
+#   SUPABASE_SERVICE_ROLE_KEY  — Supabase service-role key (server-side only)
 # ---------------------------------------------------------------------------

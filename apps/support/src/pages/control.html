@@ -437,7 +437,8 @@
     // -----------------------------------------------------------------------
     let activeFilter = { type: 'priority', value: 'urgent' };
     let activeTicketId = null;
-    let activeChannel = null;        // current Supabase realtime channel
+    let activeChannel = null;         // messages realtime channel
+    let activeStatusChannel = null;   // ticket status realtime channel
     let currentLocationId = 'location-demo'; // overwritten after auth
 
     // -----------------------------------------------------------------------
@@ -603,6 +604,39 @@
     }
 
     // -----------------------------------------------------------------------
+    // Subscribe to ticket status changes (support_tickets table)
+    // -----------------------------------------------------------------------
+    async function subscribeToWorkspaceStatus(ghlOpportunityId) {
+      // Unsubscribe previous status channel
+      if (activeStatusChannel) {
+        try { await activeStatusChannel.unsubscribe(); } catch (_) {}
+        activeStatusChannel = null;
+      }
+
+      if (IS_DEMO) return;
+
+      const { subscribeToTicketStatus } = await import('../services/supabase.js');
+      activeStatusChannel = subscribeToTicketStatus(ghlOpportunityId, currentLocationId, (update) => {
+        const newStatus = update.status;
+
+        // Update in-memory ticket
+        const ticket = DEMO_DATA.tickets.find(t => t.ghlOpportunityId === ghlOpportunityId);
+        if (ticket) ticket.status = newStatus;
+
+        // Re-render ticket list + counts
+        renderTicketList(DEMO_DATA.tickets);
+        updateCounts(DEMO_DATA.tickets);
+
+        // Update workspace header status badge if this is the active ticket
+        if (activeTicketId && ticket && ticket.id === activeTicketId) {
+          // Flash the active ticket row to signal the status change
+          flashTicketRow(activeTicketId);
+          showToast(`Status updated: ${newStatus.replace('_', ' ')}`);
+        }
+      });
+    }
+
+    // -----------------------------------------------------------------------
     // Load workspace
     // -----------------------------------------------------------------------
     async function loadWorkspace(ticket) {
@@ -647,8 +681,11 @@
       // Re-render ticket list to update active highlight
       renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
 
-      // Subscribe to realtime updates for this ticket
+      // Subscribe to realtime message updates
       await subscribeToWorkspaceTicket(ticket.id);
+
+      // Subscribe to ticket status updates (GHL webhook → Supabase → UI)
+      await subscribeToWorkspaceStatus(ticket.ghlOpportunityId);
     }
 
     // -----------------------------------------------------------------------
@@ -835,6 +872,10 @@
       if (activeChannel) {
         activeChannel.unsubscribe().catch(() => {});
         activeChannel = null;
+      }
+      if (activeStatusChannel) {
+        activeStatusChannel.unsubscribe().catch(() => {});
+        activeStatusChannel = null;
       }
     }
 

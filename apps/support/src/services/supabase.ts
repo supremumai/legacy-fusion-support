@@ -46,7 +46,23 @@
  *   after insert on auth.users
  *   for each row execute procedure public.handle_new_user();
  *
- * -- Block 3: multi-tenant RLS by location_id (Batch 12c)
+ * -- Block 3: support_tickets table (Batch 13c)
+ * create table support_tickets (
+ *   id                  text primary key,
+ *   ghl_opportunity_id  text unique,
+ *   location_id         text not null,
+ *   status              text not null,
+ *   updated_at          timestamptz default now()
+ * );
+ *
+ * alter table support_tickets enable row level security;
+ *
+ * create policy "agents_tickets" on support_tickets
+ *   for all using (
+ *     location_id = current_setting('app.location_id', true)
+ *   );
+ *
+ * -- Block 4: multi-tenant RLS by location_id on support_messages (Batch 12c)
  * -- Add location_id column to support_messages
  * alter table support_messages
  *   add column location_id text not null default '';
@@ -262,6 +278,55 @@ export async function addMessage(
 
   if (error) throw new Error(`addMessage failed: ${error.message}`);
   return rowToMessage(data as MessageRow);
+}
+
+// ---------------------------------------------------------------------------
+// subscribeToTicketStatus
+// Listens for UPDATE events on support_tickets for a given ghl_opportunity_id.
+// Used by control.html to sync stage changes pushed by the GHL webhook receiver.
+// ---------------------------------------------------------------------------
+export interface TicketStatusUpdate {
+  ghlOpportunityId: string;
+  status: string;
+  updatedAt: Date;
+}
+
+export function subscribeToTicketStatus(
+  ghlOpportunityId: string,
+  locationId: string,
+  callback: (update: TicketStatusUpdate) => void
+): RealtimeChannel {
+  if (DEMO_MODE) {
+    return { unsubscribe: () => Promise.resolve('ok' as const) } as unknown as RealtimeChannel;
+  }
+
+  return supabase
+    .channel(`ticket-status:${locationId}:${ghlOpportunityId}`)
+    .on(
+      'postgres_changes',
+      {
+        event:  'UPDATE',
+        schema: 'public',
+        table:  'support_tickets',
+        filter: `ghl_opportunity_id=eq.${ghlOpportunityId}`,
+      },
+      (payload) => {
+        const row = payload.new as {
+          ghl_opportunity_id: string;
+          location_id: string;
+          status: string;
+          updated_at: string;
+        };
+        // Secondary location guard (RLS already enforces server-side)
+        if (row.location_id !== locationId) return;
+        callback({
+          ghlOpportunityId: row.ghl_opportunity_id,
+          status:           row.status,
+          updatedAt:        new Date(row.updated_at),
+        });
+      }
+    )
+    .subscribe();
 }
 
 // ---------------------------------------------------------------------------

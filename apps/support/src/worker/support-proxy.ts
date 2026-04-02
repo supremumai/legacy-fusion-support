@@ -8,6 +8,10 @@ export interface Env {
   GHL_PIPELINE_ID: string;
   GHL_LOCATION_ID: string;
   SUPPORT_CORS_ORIGIN: string;
+  GHL_WEBHOOK_SECRET: string;
+  // Supabase service-role key — used server-side only in the Worker
+  SUPABASE_URL: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +293,158 @@ async function getContact(
 }
 
 // ---------------------------------------------------------------------------
+// Reverse stage map: GHL stage name → TicketStatus
+// ---------------------------------------------------------------------------
+const REVERSE_STAGE_MAP: Record<string, TicketStatus> = Object.fromEntries(
+  Object.entries(STAGE_MAP).map(([status, name]) => [name.toLowerCase(), status as TicketStatus])
+);
+
+function stageNameToStatus(name: string): TicketStatus | null {
+  return REVERSE_STAGE_MAP[name.toLowerCase()] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// GHL webhook signature validation
+// Uses HMAC-SHA256 over the raw request body.
+// GHL sends: X-GHL-Signature: sha256=<hex>
+// ---------------------------------------------------------------------------
+async function verifyGHLSignature(req: Request, secret: string): Promise<boolean> {
+  const signature = req.headers.get('X-GHL-Signature') ?? '';
+  if (!signature.startsWith('sha256=')) return false;
+
+  const expectedHex = signature.slice(7);
+  const body = await req.text();
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+  const actualHex = Array.from(new Uint8Array(sigBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // Timing-safe comparison
+  if (actualHex.length !== expectedHex.length) return false;
+  let diff = 0;
+  for (let i = 0; i < actualHex.length; i++) {
+    diff |= actualHex.charCodeAt(i) ^ expectedHex.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Supabase upsert helper (server-side, service-role key)
+// Upserts into support_tickets using locationId for RLS context.
+// ---------------------------------------------------------------------------
+async function upsertTicketStatus(
+  ghlOpportunityId: string,
+  locationId: string,
+  status: TicketStatus,
+  env: Env
+): Promise<void> {
+  // Set RLS session config via Supabase RPC before the upsert
+  const setConfigRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/rpc/set_config`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify({
+        setting_name: 'app.location_id',
+        new_value:    locationId,
+        is_local:     true,
+      }),
+    }
+  );
+
+  if (!setConfigRes.ok) {
+    throw new Error(`set_config failed: ${await setConfigRes.text()}`);
+  }
+
+  const upsertRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_tickets`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        ghl_opportunity_id: ghlOpportunityId,
+        location_id:        locationId,
+        status,
+        updated_at:         new Date().toISOString(),
+      }),
+    }
+  );
+
+  if (!upsertRes.ok) {
+    throw new Error(`Supabase upsert failed: ${await upsertRes.text()}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Webhook handler: POST /webhooks/ghl
+// ---------------------------------------------------------------------------
+async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
+  // Clone request so we can read body twice (once for sig verification)
+  const cloned = req.clone();
+
+  // Validate signature
+  const valid = await verifyGHLSignature(cloned, env.GHL_WEBHOOK_SECRET);
+  if (!valid) {
+    return json({ error: 'Invalid signature' }, 401, '');
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = await req.json<Record<string, unknown>>();
+  } catch {
+    return json({ error: 'Invalid JSON payload' }, 400, '');
+  }
+
+  const eventType = payload.type as string | undefined;
+
+  // Only handle opportunity stage change events
+  if (eventType !== 'opportunity.stageChange') {
+    return json({ received: true, handled: false, reason: `Unhandled event: ${eventType}` }, 200, '');
+  }
+
+  const opportunityId = payload.id as string | undefined;
+  const newStageName  = (payload.stage as Record<string, unknown>)?.name as string | undefined;
+  const locationId    = payload.locationId as string | undefined;
+
+  if (!opportunityId || !newStageName || !locationId) {
+    return json({ error: 'Missing required fields: id, stage.name, locationId' }, 422, '');
+  }
+
+  const newStatus = stageNameToStatus(newStageName);
+  if (!newStatus) {
+    return json({ received: true, handled: false, reason: `Unknown stage name: ${newStageName}` }, 200, '');
+  }
+
+  try {
+    await upsertTicketStatus(opportunityId, locationId, newStatus, env);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return json({ error: 'Supabase sync failed', detail: msg }, 502, '');
+  }
+
+  return json({ received: true, handled: true, opportunityId, newStatus }, 200, '');
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 export default {
@@ -341,6 +497,11 @@ export default {
     const contactMatch = path.match(/^\/ghl\/contacts\/([^/]+)$/);
     if (method === 'GET' && contactMatch) {
       return getContact(contactMatch[1], env, origin);
+    }
+
+    // Route: POST /webhooks/ghl — GHL inbound webhook (no CORS check, signature validated internally)
+    if (method === 'POST' && path === '/webhooks/ghl') {
+      return handleGHLWebhook(req, env);
     }
 
     return json({ error: 'Not found' }, 404, origin);
