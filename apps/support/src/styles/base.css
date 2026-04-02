@@ -1,1 +1,181 @@
-/* stub */
+/* ===========================================================================
+   Legacy Fusion — Design Token System
+   base.css — tokens, reset, body, and utility classes
+   All downstream CSS files must @import this file and reference tokens only.
+   No raw hex values permitted in chat.css or control.css.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   Google Fonts
+   --------------------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,500&family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ---------------------------------------------------------------------------
+   CSS Reset
+   --------------------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Design Tokens
+   --------------------------------------------------------------------------- */
+:root {
+  /* Backgrounds */
+  --bg:       #0a1a28;
+  --bg2:      #050e18;
+  --surface:  rgba(5, 14, 24, 0.65);
+  --surface-2: rgba(255, 255, 255, 0.04);
+
+  /* Cyan */
+  --cyan:        #00e5ff;
+  --cyan-dim:    rgba(0, 229, 255, 0.15);
+  --cyan-border: rgba(0, 229, 255, 0.08);
+  --cyan-glow:   0 0 8px rgba(0, 229, 255, 0.25), 0 0 24px rgba(0, 229, 255, 0.08);
+
+  /* Gold */
+  --gold:        #FDA929;
+  --gold-dim:    rgba(253, 169, 41, 0.15);
+  --gold-border: rgba(253, 169, 41, 0.2);
+  --gold-glow:   0 0 8px rgba(253, 169, 41, 0.3), 0 0 24px rgba(253, 169, 41, 0.1);
+
+  /* Text */
+  --text-primary:  #ffffff;
+  --text-secondary: #cad6df;
+  --text-muted:    #8fa4b5;
+  --text-inactive: #718694;
+
+  /* Typography */
+  --font-ui:   'Exo 2', sans-serif;
+  --font-data: 'Orbitron', sans-serif;
+  --font-body: 'Inter', sans-serif;
+
+  /* Radius */
+  --radius-pill:  999px;
+  --radius-card:  20px;
+  --radius-inner: 12px;
+
+  /* Shadows */
+  --shadow-card: 0 0 14px rgba(0, 229, 255, 0.05), 0 28px 80px rgba(0, 0, 0, 0.3);
+  --shadow-cyan: 0 0 8px rgba(0, 229, 255, 0.25), 0 0 24px rgba(0, 229, 255, 0.08);
+  --shadow-gold: 0 0 8px rgba(253, 169, 41, 0.3), 0 0 24px rgba(253, 169, 41, 0.1);
+}
+
+/* ---------------------------------------------------------------------------
+   Body
+   --------------------------------------------------------------------------- */
+body {
+  background: linear-gradient(180deg, #0a1a28 0%, #071520 30%, #050e18 60%, #030a10 100%);
+  min-height: 100vh;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------------------------------------------------------------------------
+   Utility: Glass Card
+   --------------------------------------------------------------------------- */
+.glass-card {
+  background: var(--surface);
+  border: 1px solid var(--cyan-border);
+  border-radius: var(--radius-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+}
+
+/* ---------------------------------------------------------------------------
+   Utility: Buttons
+   --------------------------------------------------------------------------- */
+.btn-gold {
+  background: linear-gradient(135deg, #FDA929, #ffbf4d);
+  color: #0a0a0a;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-height: 44px;
+  padding: 0 24px;
+  border: none;
+  box-shadow: var(--shadow-gold);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-gold:hover {
+  opacity: 0.92;
+  box-shadow: var(--gold-glow);
+}
+
+.btn-gold:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-cyan {
+  background: rgba(0, 229, 255, 0.04);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  color: var(--cyan);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 0.88rem;
+  min-height: 44px;
+  padding: 0 24px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-cyan:hover {
+  background: var(--cyan-dim);
+  box-shadow: var(--shadow-cyan);
+}
+
+.btn-cyan:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+   Utility: Badge
+   --------------------------------------------------------------------------- */
+.badge-pill {
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  background: rgba(0, 229, 255, 0.04);
+  color: var(--cyan);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------------------------
+   Utility: Text Colors
+   --------------------------------------------------------------------------- */
+.text-cyan {
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
+
+.text-gold {
+  color: var(--gold);
+  text-shadow: 0 0 8px rgba(253, 169, 41, 0.3);
+}
