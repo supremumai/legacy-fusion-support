@@ -1,1 +1,1 @@
-// stub
+export type { Message } from './ticket';
