@@ -3,9 +3,341 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Support Chat</title>
+  <title>Legacy Fusion Support</title>
+  <link rel="stylesheet" href="../styles/base.css" />
+  <link rel="stylesheet" href="../styles/chat.css" />
 </head>
 <body>
-  <!-- stub -->
+
+  <!-- =====================================================================
+       App Shell
+       ===================================================================== -->
+  <div class="chat-app">
+
+    <!-- -----------------------------------------------------------------
+         Sidebar
+         ----------------------------------------------------------------- -->
+    <aside class="chat-sidebar glass-card" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-brand">
+          <span class="brand-dot"></span>
+          My Tickets
+        </span>
+      </div>
+
+      <div class="sidebar-group" id="sidebar-open">
+        <div class="sidebar-group-label">Open</div>
+        <!-- Ticket rows injected by JS -->
+      </div>
+
+      <div class="sidebar-group" id="sidebar-waiting">
+        <div class="sidebar-group-label">Waiting</div>
+      </div>
+
+      <div class="sidebar-group" id="sidebar-resolved">
+        <div class="sidebar-group-label">Resolved</div>
+      </div>
+    </aside>
+
+    <!-- -----------------------------------------------------------------
+         Main area
+         ----------------------------------------------------------------- -->
+    <main class="chat-main">
+
+      <!-- ---------------------------------------------------------------
+           Welcome State (shown when no active ticket)
+           --------------------------------------------------------------- -->
+      <section class="welcome-state" id="welcomeState">
+        <div class="welcome-content glass-card">
+          <div class="welcome-logo">
+            <span class="welcome-glyph">⬡</span>
+          </div>
+          <h1 class="welcome-title">Hi, I'm <span class="text-gold">LegacyZero</span></h1>
+          <p class="welcome-subtitle">Tell me what's going on — I'll help you right away.</p>
+
+          <div class="welcome-input-wrap">
+            <textarea
+              id="welcomeInput"
+              class="chat-textarea"
+              placeholder="Describe your issue..."
+              rows="3"
+            ></textarea>
+            <button class="btn-gold send-btn" id="welcomeSendBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              Send
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------
+           Thread Mode (shown when a ticket is active)
+           --------------------------------------------------------------- -->
+      <section class="thread-state hidden" id="threadState">
+
+        <!-- Top bar -->
+        <div class="thread-topbar glass-card">
+          <div class="topbar-left">
+            <span class="ticket-id-label" id="activeTicketId">T-000000</span>
+            <span class="ticket-subject" id="activeTicketSubject">Loading…</span>
+          </div>
+          <div class="topbar-right">
+            <span class="sla-badge badge-pill text-gold" id="slaBadge">SLA: —</span>
+          </div>
+        </div>
+
+        <!-- Message thread -->
+        <div class="message-thread" id="messageThread">
+          <!-- Message bubbles injected by JS -->
+        </div>
+
+        <!-- Quick action pills -->
+        <div class="quick-actions" id="quickActions">
+          <button class="quick-pill" data-prompt="Billing issue">Billing issue</button>
+          <button class="quick-pill" data-prompt="Report a bug">Report a bug</button>
+          <button class="quick-pill" data-prompt="Need help">Need help</button>
+          <button class="quick-pill" data-prompt="Talk to human">Talk to human</button>
+        </div>
+
+        <!-- Input bar -->
+        <div class="chat-input-bar">
+          <textarea
+            id="threadInput"
+            class="chat-textarea"
+            placeholder="Type a message…"
+            rows="1"
+          ></textarea>
+          <button class="btn-gold send-btn" id="threadSendBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Send
+          </button>
+        </div>
+
+      </section>
+
+    </main>
+  </div><!-- /.chat-app -->
+
+  <!-- =====================================================================
+       Inline Script
+       ===================================================================== -->
+  <script>
+    // -----------------------------------------------------------------------
+    // Demo mode guard
+    // Vite replaces import.meta.env.VITE_DEMO_MODE at build time.
+    // For standalone HTML preview (no bundler), fall back to true.
+    // -----------------------------------------------------------------------
+    const IS_DEMO = (
+      typeof import !== 'undefined' &&
+      typeof import.meta !== 'undefined'
+        ? (import.meta.env?.VITE_DEMO_MODE === 'true')
+        : true
+    );
+
+    // -----------------------------------------------------------------------
+    // Demo seed data (5 tickets, non-internal messages only)
+    // Full data wired in Batch 10.
+    // -----------------------------------------------------------------------
+    const DEMO_DATA = {
+      tickets: [
+        {
+          id: 'T-DEMO01', ghlOpportunityId: 'opp-01',
+          title: 'Automation not triggering on new lead',
+          status: 'in_progress', priority: 'high', category: 'technical',
+          slaDeadline: new Date(Date.now() + 4 * 60 * 60 * 1000),
+        },
+        {
+          id: 'T-DEMO02', ghlOpportunityId: 'opp-02',
+          title: 'Invoice shows incorrect amount',
+          status: 'waiting_client', priority: 'medium', category: 'billing',
+          slaDeadline: new Date(Date.now() + 20 * 60 * 60 * 1000),
+        },
+        {
+          id: 'T-DEMO03', ghlOpportunityId: 'opp-03',
+          title: 'How do I add a team member?',
+          status: 'resolved', priority: 'low', category: 'general',
+          slaDeadline: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        },
+        {
+          id: 'T-DEMO04', ghlOpportunityId: 'opp-04',
+          title: 'Pipeline stage not updating after call',
+          status: 'new', priority: 'urgent', category: 'technical',
+          slaDeadline: new Date(Date.now() + 1 * 60 * 60 * 1000),
+        },
+        {
+          id: 'T-DEMO05', ghlOpportunityId: 'opp-05',
+          title: 'Need to cancel current plan',
+          status: 'waiting_internal', priority: 'medium', category: 'billing',
+          slaDeadline: new Date(Date.now() + 12 * 60 * 60 * 1000),
+        },
+      ],
+      messages: {
+        'T-DEMO01': [
+          { id: 'm1', role: 'ai',     content: 'Hi! I\'m LegacyZero. I see you\'re having trouble with automation triggers. Can you tell me which workflow is affected?', isInternal: false, createdAt: new Date(Date.now() - 30 * 60000) },
+          { id: 'm2', role: 'client', content: 'The "New Lead — Send Welcome Email" workflow. It stopped firing about 2 hours ago.', isInternal: false, createdAt: new Date(Date.now() - 28 * 60000) },
+          { id: 'm3', role: 'ai',     content: 'Got it. I\'ve flagged this as high priority and created a ticket. An agent will review the workflow logs and follow up shortly.', isInternal: false, createdAt: new Date(Date.now() - 27 * 60000) },
+          { id: 'm4', role: 'agent',  content: 'I can see the workflow was paused by a system update. Re-enabling it now — should be firing within 5 minutes.', isInternal: false, createdAt: new Date(Date.now() - 10 * 60000) },
+        ],
+        'T-DEMO04': [
+          { id: 'm5', role: 'ai',     content: 'This looks urgent — pipeline stages not updating can block your whole team. Is this happening on all contacts or a specific one?', isInternal: false, createdAt: new Date(Date.now() - 5 * 60000) },
+          { id: 'm6', role: 'client', content: 'All contacts after a logged call. The stage just stays where it was.', isInternal: false, createdAt: new Date(Date.now() - 3 * 60000) },
+        ],
+      },
+    };
+
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    let activeTicketId = null;
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+    function statusGroup(status) {
+      if (['new', 'triaged', 'in_progress', 'escalated'].includes(status)) return 'open';
+      if (['waiting_client', 'waiting_internal'].includes(status))          return 'waiting';
+      return 'resolved';
+    }
+
+    function statusBadgeClass(status) {
+      const group = statusGroup(status);
+      if (group === 'open')     return 'badge-cyan';
+      if (group === 'waiting')  return 'badge-gold';
+      return 'badge-green';
+    }
+
+    function slaLabel(deadline) {
+      const ms = new Date(deadline) - Date.now();
+      if (ms < 0) return 'SLA: Overdue';
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      return h > 0 ? `SLA: ${h}h ${m}m` : `SLA: ${m}m`;
+    }
+
+    function formatTime(date) {
+      return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // -----------------------------------------------------------------------
+    // Render sidebar
+    // -----------------------------------------------------------------------
+    function renderSidebar(tickets) {
+      const groups = { open: [], waiting: [], resolved: [] };
+      tickets.forEach(t => groups[statusGroup(t.status)].push(t));
+
+      ['open', 'waiting', 'resolved'].forEach(group => {
+        const container = document.getElementById(`sidebar-${group}`);
+        // Keep the label, clear rows
+        const label = container.querySelector('.sidebar-group-label');
+        container.innerHTML = '';
+        container.appendChild(label);
+
+        groups[group].forEach(ticket => {
+          const row = document.createElement('button');
+          row.className = 'sidebar-ticket-row' + (ticket.id === activeTicketId ? ' active' : '');
+          row.dataset.ticketId = ticket.id;
+          row.innerHTML = `
+            <span class="ticket-row-id">${ticket.id}</span>
+            <span class="ticket-row-subject">${ticket.title}</span>
+            <span class="badge-pill ${statusBadgeClass(ticket.status)} ticket-row-badge">${ticket.status.replace('_', ' ')}</span>
+          `;
+          row.addEventListener('click', () => loadTicket(ticket));
+          container.appendChild(row);
+        });
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Render message thread
+    // -----------------------------------------------------------------------
+    function renderThread(messages) {
+      const thread = document.getElementById('messageThread');
+      thread.innerHTML = '';
+      messages.forEach(msg => {
+        const el = document.createElement('div');
+        el.className = `message-bubble bubble-${msg.role}`;
+        el.innerHTML = `
+          <div class="bubble-content">${msg.content}</div>
+          <div class="bubble-meta">${msg.role === 'ai' ? 'LegacyZero' : msg.role} · ${formatTime(msg.createdAt)}</div>
+        `;
+        thread.appendChild(el);
+      });
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    // -----------------------------------------------------------------------
+    // Load ticket into thread view
+    // -----------------------------------------------------------------------
+    function loadTicket(ticket) {
+      activeTicketId = ticket.id;
+
+      document.getElementById('activeTicketId').textContent = ticket.id;
+      document.getElementById('activeTicketSubject').textContent = ticket.title;
+      document.getElementById('slaBadge').textContent = slaLabel(ticket.slaDeadline);
+
+      const messages = (IS_DEMO ? DEMO_DATA.messages[ticket.id] : null) || [];
+      renderThread(messages);
+
+      document.getElementById('welcomeState').classList.add('hidden');
+      document.getElementById('threadState').classList.remove('hidden');
+
+      renderSidebar(IS_DEMO ? DEMO_DATA.tickets : []);
+    }
+
+    // -----------------------------------------------------------------------
+    // Quick action pills
+    // -----------------------------------------------------------------------
+    document.querySelectorAll('.quick-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const input = document.getElementById('threadInput');
+        input.value = pill.dataset.prompt;
+        input.focus();
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Send button (thread mode) — stub, wired in future batch
+    // -----------------------------------------------------------------------
+    document.getElementById('threadSendBtn').addEventListener('click', () => {
+      const input = document.getElementById('threadInput');
+      const text = input.value.trim();
+      if (!text) return;
+      // Live sending wired in future batch
+      input.value = '';
+    });
+
+    // -----------------------------------------------------------------------
+    // Send button (welcome mode) — stub, wired in future batch
+    // -----------------------------------------------------------------------
+    document.getElementById('welcomeSendBtn').addEventListener('click', () => {
+      const input = document.getElementById('welcomeInput');
+      const text = input.value.trim();
+      if (!text) return;
+      // Conversation loop wired in future batch
+      input.value = '';
+    });
+
+    // -----------------------------------------------------------------------
+    // Auto-resize textarea
+    // -----------------------------------------------------------------------
+    ['threadInput', 'welcomeInput'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Init
+    // -----------------------------------------------------------------------
+    if (IS_DEMO) {
+      renderSidebar(DEMO_DATA.tickets);
+      // Auto-load first open ticket
+      const first = DEMO_DATA.tickets.find(t => statusGroup(t.status) === 'open');
+      if (first) loadTicket(first);
+    }
+  </script>
+
 </body>
 </html>
