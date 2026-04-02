@@ -793,11 +793,173 @@
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); }
     });
 
-    // Remaining action stubs (Assign / Escalate / Resolve / Close — future batch)
-    ['btnAssign','btnEscalate','btnResolve','btnClose'].forEach(id => {
-      document.getElementById(id)?.addEventListener('click', () => {
-        // Action handlers wired in future batch
+    // -----------------------------------------------------------------------
+    // Ticket action helpers
+    // -----------------------------------------------------------------------
+    const AGENT_OPTIONS = ['Legacy', 'Cesar', 'Antonio'];
+
+    function setActionsBusy(busy) {
+      ['btnAssign','btnEscalate','btnResolve','btnClose'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = busy;
       });
+    }
+
+    function showToast(msg, color = 'cyan') {
+      let toast = document.getElementById('actionToast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'actionToast';
+        toast.className = 'action-toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.className = `action-toast toast-${color} toast-visible`;
+      clearTimeout(toast._hideTimer);
+      toast._hideTimer = setTimeout(() => toast.classList.remove('toast-visible'), 2000);
+    }
+
+    function mutateTicketStatus(ticketId, newStatus) {
+      const ticket = DEMO_DATA.tickets.find(t => t.id === ticketId);
+      if (ticket) ticket.status = newStatus;
+    }
+
+    function removeTicketFromList(ticketId) {
+      DEMO_DATA.tickets = DEMO_DATA.tickets.filter(t => t.id !== ticketId);
+    }
+
+    function showWorkspaceEmpty() {
+      document.getElementById('workspaceContent').classList.add('hidden');
+      document.getElementById('workspaceEmpty').classList.remove('hidden');
+      activeTicketId = null;
+      if (activeChannel) {
+        activeChannel.unsubscribe().catch(() => {});
+        activeChannel = null;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Assign — inline dropdown
+    // -----------------------------------------------------------------------
+    document.getElementById('btnAssign').addEventListener('click', () => {
+      // Remove any existing dropdown
+      document.getElementById('assignDropdown')?.remove();
+
+      const btn = document.getElementById('btnAssign');
+      const dropdown = document.createElement('div');
+      dropdown.id = 'assignDropdown';
+      dropdown.className = 'assign-dropdown glass-card';
+
+      AGENT_OPTIONS.forEach(agent => {
+        const opt = document.createElement('button');
+        opt.className = 'assign-option';
+        opt.textContent = agent;
+        opt.addEventListener('click', async () => {
+          dropdown.remove();
+          if (!activeTicketId) return;
+          setActionsBusy(true);
+          try {
+            if (!IS_DEMO) {
+              const { updateTicketStatus } = await import('../services/ghl.js');
+              await updateTicketStatus(activeTicketId, 'triaged');
+            }
+            // Update in-memory ticket assignedTo
+            const ticket = DEMO_DATA.tickets.find(t => t.id === activeTicketId);
+            if (ticket) {
+              ticket.assignedTo = agent.slice(0, 2).toUpperCase();
+              ticket.status = ticket.status === 'new' ? 'triaged' : ticket.status;
+            }
+            // Update avatar in workspace header
+            renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+            showToast(`Assigned to ${agent}`);
+          } catch (err) {
+            showWsError(err.message ?? 'Assign failed.');
+          } finally {
+            setActionsBusy(false);
+          }
+        });
+        dropdown.appendChild(opt);
+      });
+
+      // Position below the Assign button
+      const rect = btn.getBoundingClientRect();
+      dropdown.style.top  = `${rect.bottom + window.scrollY + 4}px`;
+      dropdown.style.left = `${rect.left  + window.scrollX}px`;
+      document.body.appendChild(dropdown);
+
+      // Click outside closes dropdown
+      const closeOnOutside = (e) => {
+        if (!dropdown.contains(e.target) && e.target !== btn) {
+          dropdown.remove();
+          document.removeEventListener('click', closeOnOutside);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', closeOnOutside), 0);
+    });
+
+    // -----------------------------------------------------------------------
+    // Escalate
+    // -----------------------------------------------------------------------
+    document.getElementById('btnEscalate').addEventListener('click', async () => {
+      if (!activeTicketId) return;
+      setActionsBusy(true);
+      try {
+        if (!IS_DEMO) {
+          const { updateTicketStatus } = await import('../services/ghl.js');
+          await updateTicketStatus(activeTicketId, 'escalated');
+        }
+        mutateTicketStatus(activeTicketId, 'escalated');
+        renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+        updateCounts(IS_DEMO ? DEMO_DATA.tickets : []);
+        showToast('Ticket escalated', 'gold');
+      } catch (err) {
+        showWsError(err.message ?? 'Escalate failed.');
+      } finally {
+        setActionsBusy(false);
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // Resolve
+    // -----------------------------------------------------------------------
+    document.getElementById('btnResolve').addEventListener('click', async () => {
+      if (!activeTicketId) return;
+      setActionsBusy(true);
+      try {
+        if (!IS_DEMO) {
+          const { updateTicketStatus } = await import('../services/ghl.js');
+          await updateTicketStatus(activeTicketId, 'resolved');
+        }
+        mutateTicketStatus(activeTicketId, 'resolved');
+        renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+        updateCounts(IS_DEMO ? DEMO_DATA.tickets : []);
+        showToast('Ticket resolved ✓');
+      } catch (err) {
+        showWsError(err.message ?? 'Resolve failed.');
+      } finally {
+        setActionsBusy(false);
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // Close
+    // -----------------------------------------------------------------------
+    document.getElementById('btnClose').addEventListener('click', async () => {
+      if (!activeTicketId) return;
+      setActionsBusy(true);
+      try {
+        if (!IS_DEMO) {
+          const { updateTicketStatus } = await import('../services/ghl.js');
+          await updateTicketStatus(activeTicketId, 'closed');
+        }
+        removeTicketFromList(activeTicketId);
+        renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+        updateCounts(IS_DEMO ? DEMO_DATA.tickets : []);
+        showWorkspaceEmpty();
+      } catch (err) {
+        showWsError(err.message ?? 'Close failed.');
+        setActionsBusy(false);
+      }
     });
 
     // -----------------------------------------------------------------------

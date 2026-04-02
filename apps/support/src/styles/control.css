@@ -714,6 +714,76 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Assign dropdown
+   --------------------------------------------------------------------------- */
+.assign-dropdown {
+  position: fixed;
+  z-index: 9000;
+  min-width: 140px;
+  padding: 6px 0;
+  border-radius: var(--radius-inner);
+  box-shadow: var(--shadow-card);
+}
+
+.assign-option {
+  display: block;
+  width: 100%;
+  padding: 9px 16px;
+  background: transparent;
+  border: none;
+  font-family: var(--font-ui);
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.assign-option:hover {
+  background: var(--cyan-dim);
+  color: var(--cyan);
+}
+
+/* ---------------------------------------------------------------------------
+   Action toast
+   --------------------------------------------------------------------------- */
+.action-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  padding: 10px 22px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.84rem;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 9999;
+  white-space: nowrap;
+}
+
+.action-toast.toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.action-toast.toast-cyan {
+  background: var(--cyan-dim);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  color: var(--cyan);
+  box-shadow: var(--shadow-cyan);
+}
+
+.action-toast.toast-gold {
+  background: var(--gold-dim);
+  border: 1px solid var(--gold-border);
+  color: var(--gold);
+  box-shadow: var(--shadow-gold);
+}
+
+/* ---------------------------------------------------------------------------
    Badge variants
    --------------------------------------------------------------------------- */
 .badge-cyan {
