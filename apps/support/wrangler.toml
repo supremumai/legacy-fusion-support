@@ -1,1 +1,24 @@
-# TODO: configure wrangler
+name = "legacy-fusion-support-proxy"
+main = "src/worker/support-proxy.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Non-secret config — set actual values via `wrangler secret put` for secrets
+# SUPPORT_CORS_ORIGIN is non-sensitive and can be set here per environment
+
+[env.staging]
+vars = { SUPPORT_CORS_ORIGIN = "https://support-staging.legacyfusion.ai" }
+
+[env.production]
+vars = { SUPPORT_CORS_ORIGIN = "https://support.legacyfusion.ai" }
+
+# ---------------------------------------------------------------------------
+# Secrets — set via CLI, never committed:
+#   wrangler secret put GHL_API_KEY
+#   wrangler secret put GHL_PIPELINE_ID
+#   wrangler secret put GHL_LOCATION_ID
+# ---------------------------------------------------------------------------
+# Secret names declared for documentation purposes only:
+# GHL_API_KEY
+# GHL_PIPELINE_ID
+# GHL_LOCATION_ID
