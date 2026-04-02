@@ -692,9 +692,109 @@
     });
 
     // -----------------------------------------------------------------------
-    // Action button stubs (wired in future batch)
     // -----------------------------------------------------------------------
-    ['btnAssign','btnEscalate','btnResolve','btnClose','btnAddNote','btnSendReply'].forEach(id => {
+    // Reply + note helpers
+    // -----------------------------------------------------------------------
+    function setWsInputBusy(busy) {
+      document.getElementById('btnSendReply').disabled = busy;
+      document.getElementById('btnAddNote').disabled   = busy;
+      document.getElementById('wsReplyInput').disabled = busy;
+    }
+
+    function showWsError(msg) {
+      let el = document.getElementById('wsInputError');
+      if (!el) {
+        el = document.createElement('p');
+        el.id = 'wsInputError';
+        el.className = 'ws-input-error';
+        document.querySelector('.ws-input-area').appendChild(el);
+      }
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      setTimeout(() => el?.classList.add('hidden'), 4000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Send reply (agent → client, public)
+    // -----------------------------------------------------------------------
+    async function handleSendReply() {
+      if (!activeTicketId) return;
+      const input = document.getElementById('wsReplyInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      setWsInputBusy(true);
+
+      // Optimistic bubble
+      const fakeMsg = { id: `opt-${Date.now()}`, role: 'agent', content: text, isInternal: false, createdAt: new Date() };
+      appendWsBubbleFromMessage(fakeMsg);
+      const optEl = document.getElementById('wsThread').lastElementChild;
+      input.value = '';
+      input.style.height = '';
+
+      try {
+        if (!IS_DEMO) {
+          const { addMessage } = await import('../services/supabase.js');
+          await addMessage(activeTicketId, 'agent', text, currentLocationId, false);
+        }
+        // Demo: bubble already appended, nothing more to do
+      } catch (err) {
+        // Rollback optimistic bubble
+        optEl?.remove();
+        input.value = text;
+        showWsError(err.message ?? 'Failed to send reply. Please try again.');
+      } finally {
+        setWsInputBusy(false);
+        input.focus();
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Add internal note (agent → internal, gold tint)
+    // -----------------------------------------------------------------------
+    async function handleAddNote() {
+      if (!activeTicketId) return;
+      const input = document.getElementById('wsReplyInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      setWsInputBusy(true);
+
+      // Optimistic internal note bubble
+      const fakeNote = { id: `opt-note-${Date.now()}`, role: 'agent', content: text, isInternal: true, createdAt: new Date() };
+      appendWsBubbleFromMessage(fakeNote);
+      const optEl = document.getElementById('wsThread').lastElementChild;
+      input.value = '';
+      input.style.height = '';
+
+      try {
+        if (!IS_DEMO) {
+          const { addMessage } = await import('../services/supabase.js');
+          await addMessage(activeTicketId, 'agent', text, currentLocationId, true);
+        }
+      } catch (err) {
+        optEl?.remove();
+        input.value = text;
+        showWsError(err.message ?? 'Failed to save note. Please try again.');
+      } finally {
+        setWsInputBusy(false);
+        input.focus();
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Wire buttons
+    // -----------------------------------------------------------------------
+    document.getElementById('btnSendReply').addEventListener('click', handleSendReply);
+    document.getElementById('btnAddNote').addEventListener('click', handleAddNote);
+
+    // Enter = send reply, Shift+Enter = newline
+    document.getElementById('wsReplyInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); }
+    });
+
+    // Remaining action stubs (Assign / Escalate / Resolve / Close — future batch)
+    ['btnAssign','btnEscalate','btnResolve','btnClose'].forEach(id => {
       document.getElementById(id)?.addEventListener('click', () => {
         // Action handlers wired in future batch
       });
