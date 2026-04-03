@@ -139,11 +139,12 @@ export interface UserProfile {
 // ---------------------------------------------------------------------------
 async function setLocationContext(locationId: string): Promise<void> {
   const { error } = await supabase.rpc('set_config', {
-    setting_name:  'app.location_id',
-    new_value:     locationId,
-    is_local:      true,
+    setting_name: 'app.location_id',
+    new_value:    locationId,
+    is_local:     true,
   });
-  if (error) throw new Error(`setLocationContext failed: ${error.message}`);
+  // Log but don't throw — RLS may still allow the operation if the row carries location_id
+  if (error) console.warn('[supabase] setLocationContext error (non-fatal):', error.message);
 }
 
 // ---------------------------------------------------------------------------

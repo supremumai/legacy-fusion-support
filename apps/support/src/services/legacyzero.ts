@@ -11,7 +11,7 @@ const WORKER_URL = 'https://legacy-fusion-support.hector-0b9.workers.dev';
 // System prompts
 // ---------------------------------------------------------------------------
 const TRIAGE_SYSTEM_PROMPT =
-  'You are LegacyZero, the AI support agent for Legacy Fusion. Analyze the conversation and return ONLY valid JSON: { category, priority, problem, suggestedAction }. category: technical | billing | general | escalated. priority: urgent (system down/data loss) | high (blocking work) | medium (inconvenience) | low (question/feature).';
+  'You are a support triage AI. Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation, no text before or after. Just the JSON object itself.\nFormat: {"category":"technical|billing|general|escalated","priority":"urgent|high|medium|low","problem":"one sentence","suggestedAction":"one sentence"}';
 
 const CONVERSATION_SYSTEM_PROMPT =
   'You are LegacyZero, the AI support agent for Legacy Fusion. Be concise, warm, and professional. Collect the information needed to resolve the issue. Once you have enough context, confirm a ticket has been created and an agent will follow up.';
@@ -70,8 +70,23 @@ export async function triageConversation(messages: Message[]): Promise<AISummary
   };
 
   try {
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    parsed = JSON.parse(cleaned);
+    const cleaned = raw
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .replace(/^---.*$/gm, '')
+      .trim();
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      // Fallback: extract first JSON object from response
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        throw new Error('no JSON object found');
+      }
+    }
   } catch {
     console.error('[LegacyZero] Triage parse failure. Raw response:', raw);
     throw new Error(`LegacyZero triage failed: could not parse AI response as JSON. Raw: ${raw}`);
