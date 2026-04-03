@@ -71,14 +71,30 @@ function corsHeaders(origin: string): HeadersInit {
   };
 }
 
+// ---------------------------------------------------------------------------
+// iframe-friendly security headers
+// Allows GHL to embed the support pages.
+// X-Frame-Options is intentionally omitted — it would block iframe embedding.
+// ---------------------------------------------------------------------------
+const IFRAME_HEADERS: HeadersInit = {
+  'Content-Security-Policy': "frame-ancestors https://app.gohighlevel.com",
+};
+
 function handlePreflight(origin: string): Response {
-  return new Response(null, { status: 204, headers: corsHeaders(origin) });
+  return new Response(null, {
+    status: 204,
+    headers: { ...corsHeaders(origin), ...IFRAME_HEADERS },
+  });
 }
 
 function json(data: unknown, status = 200, origin = '*'): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...corsHeaders(origin),
+      ...IFRAME_HEADERS,
+    },
   });
 }
 
