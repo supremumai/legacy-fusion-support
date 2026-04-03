@@ -1,46 +1,34 @@
 name = "legacy-fusion-support"
 main = "src/worker/support-proxy.ts"
 compatibility_date = "2026-04-02"
-workers_dev = false
+workers_dev = true
 preview_urls = false
 
 # ---------------------------------------------------------------------------
-# Static assets — served from the same Worker domain.
-# dist/ is built by `npm run deploy` (vite build runs first, then wrangler deploy).
-#
-# Cloudflare dashboard → Workers → Settings → Build → Deploy command:
-#   npm run deploy
+# Static assets — served from the same Worker domain
+# dist/ is built by `npm run deploy` (vite build runs first, then wrangler deploy)
 # ---------------------------------------------------------------------------
 [assets]
 directory = "dist"
 
 # ---------------------------------------------------------------------------
 # Non-secret vars — safe to commit
-# Supabase URL is public (project URL is not a secret, anon key is separate)
-# AI provider and demo mode are build-time flags
 # ---------------------------------------------------------------------------
 [vars]
-SUPABASE_URL          = "https://ckbwpsrlphwgkqyimbck.supabase.co"
-SUPPORT_CORS_ORIGIN   = "https://legacy-fusion-support.hector-0b9.workers.dev"
-GHL_LOCATION_ID       = "mIu9cdQYBapF8uAMcpog"
+SUPABASE_URL            = "https://ckbwpsrlphwgkqyimbck.supabase.co"
+SUPPORT_CORS_ORIGIN     = "https://legacy-fusion-support.hector-0b9.workers.dev"
+GHL_LOCATION_ID         = "mIu9cdQYBapF8uAMcpog"
+VITE_SUPABASE_URL       = "https://ckbwpsrlphwgkqyimbck.supabase.co"
+VITE_SUPPORT_WORKER_URL = "https://legacy-fusion-support.hector-0b9.workers.dev"
+VITE_AI_PROVIDER        = "anthropic"
+VITE_DEMO_MODE          = "true"
 
 # ---------------------------------------------------------------------------
-# Secrets — set via Wrangler CLI, never committed:
+# Secrets — set via Wrangler CLI / Cloudflare dashboard, never committed:
 #
 #   wrangler secret put GHL_AGENCY_TOKEN
 #   wrangler secret put GHL_LOCATION_TOKEN
-#   wrangler secret put GHL_LOCATION_ID
 #   wrangler secret put GHL_WEBHOOK_SECRET
-#   wrangler secret put SUPABASE_URL
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-#   wrangler secret put SUPPORT_CORS_ORIGIN
-#
-# Secret names (for reference — no values here):
-#   GHL_AGENCY_TOKEN          — GHL agency-level API token
-#   GHL_LOCATION_TOKEN        — GHL location-level API token
-#   GHL_LOCATION_ID           — GHL sub-account location ID
-#   GHL_WEBHOOK_SECRET        — HMAC-SHA256 secret from GHL webhook config
-#   SUPABASE_URL              — Supabase project URL
-#   SUPABASE_SERVICE_ROLE_KEY — Supabase service-role key (server-side only)
-#   SUPPORT_CORS_ORIGIN       — Allowed browser origin for CORS enforcement
+#   wrangler secret put VITE_SUPABASE_ANON_KEY
 # ---------------------------------------------------------------------------
