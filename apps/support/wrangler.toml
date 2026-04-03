@@ -1,4 +1,4 @@
-# Last deploy retrigger: 2026-04-03
+# Last deploy retrigger: 2026-04-03T20:30
 name = "legacy-fusion-support"
 main = "src/worker/support-proxy.ts"
 compatibility_date = "2026-04-02"
