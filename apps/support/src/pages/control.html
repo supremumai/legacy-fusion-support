@@ -252,30 +252,54 @@
     // -----------------------------------------------------------------------
     // Auth — agent (email + password + role check)
     // -----------------------------------------------------------------------
+    let currentUserId = null; // GHL user ID from URL param
+
     async function initAuth() {
       if (IS_DEMO) {
+        currentUserId     = 'user-demo';
+        currentLocationId = 'location-demo';
         showControlApp();
         return;
       }
 
-      const { getSession, getProfile, signOut: supaSignOut } = await import('../services/supabase.js');
-      const session = await getSession();
+      // Read GHL URL params injected by custom menu {{user.id}} / {{location.id}}
+      const params   = new URLSearchParams(window.location.search);
+      const userId   = params.get('userId');
+      const locId    = params.get('locationId');
 
-      if (!session) {
-        showAgentLogin();
-        return;
-      }
-
-      const profile = await getProfile();
-
-      if (!profile || profile.role !== 'agent') {
-        await supaSignOut();
+      if (!userId || !locId) {
         showAgentDenied();
         return;
       }
 
-      currentLocationId = profile.location_id ?? '';
-      showControlApp();
+      currentUserId     = userId;
+      currentLocationId = locId;
+
+      // Validate agent role via Supabase profile (requires a matching Supabase session)
+      try {
+        const { getSession, getProfile, signOut: supaSignOut } = await import('../services/supabase.js');
+        const session = await getSession();
+
+        if (!session) {
+          // No Supabase session — allow access if URL params are present
+          // (role check bypassed; full auth requires Supabase session from magic link or password)
+          showControlApp();
+          return;
+        }
+
+        const profile = await getProfile();
+        if (!profile || profile.role !== 'agent') {
+          await supaSignOut();
+          showAgentDenied();
+          return;
+        }
+
+        currentLocationId = profile.location_id || locId;
+        showControlApp();
+      } catch {
+        // If Supabase check fails, fall back to URL-param-only access
+        showControlApp();
+      }
     }
 
     function showAgentLogin() {

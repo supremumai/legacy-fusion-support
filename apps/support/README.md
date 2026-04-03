@@ -200,7 +200,7 @@ In GHL → Settings → Custom Menus → New Menu Item:
 | Field | Value |
 |---|---|
 | Name | `Support` |
-| URL | `https://legacy-fusion-support.hector-0b9.workers.dev/chat.html?token={{contact.token}}` |
+| URL | `https://legacy-fusion-support.hector-0b9.workers.dev/chat.html?contactId={{contact.id}}&locationId={{location.id}}` |
 | Open in | Iframe |
 | Visibility | Contacts only |
 
@@ -208,7 +208,7 @@ In GHL → Settings → Custom Menus → New Menu Item:
 | Field | Value |
 |---|---|
 | Name | `Support Center` |
-| URL | `https://legacy-fusion-support.hector-0b9.workers.dev/control.html?token={{user.token}}` |
+| URL | `https://legacy-fusion-support.hector-0b9.workers.dev/control.html?userId={{user.id}}&locationId={{location.id}}` |
 | Open in | Iframe |
 | Visibility | Team only (hide from contacts) |
 

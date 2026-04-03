@@ -177,23 +177,32 @@
 
     async function initAuth() {
       if (IS_DEMO) {
-        // Demo: skip auth, show app immediately with demo contact
-        currentContactId = 'contact-marco';
+        currentContactId  = 'contact-marco';
+        currentLocationId = 'location-demo';
         showApp();
         return;
       }
 
-      const { getSession, getProfile } = await import('../services/supabase.js');
-      const session = await getSession();
+      // Read GHL URL params injected by custom menu {{contact.id}} / {{location.id}}
+      const params    = new URLSearchParams(window.location.search);
+      const contactId = params.get('contactId');
+      const locId     = params.get('locationId');
 
-      if (!session) {
-        showLoginScreen();
+      if (!contactId || !locId) {
+        // Missing params — show access denied (not a login screen for this flow)
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('loginInputState').classList.add('hidden');
+        document.getElementById('loginConfirm').classList.add('hidden');
+        const denied = document.createElement('div');
+        denied.className = 'login-denied';
+        denied.innerHTML = '<span class="denied-icon">🔒</span><p class="confirm-text">Access denied — missing identity parameters.</p>';
+        document.querySelector('.login-card').appendChild(denied);
+        document.getElementById('chatApp').classList.add('hidden');
         return;
       }
 
-      const profile = await getProfile();
-      currentContactId  = profile?.ghl_contact_id ?? null;
-      currentLocationId = profile?.location_id ?? '';
+      currentContactId  = contactId;
+      currentLocationId = locId;
       showApp();
     }
 

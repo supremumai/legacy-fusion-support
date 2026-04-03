@@ -27,13 +27,21 @@ const STAGE_MAP: Record<TicketStatus, string> = {
   escalated:        'Escalated',
 };
 
-// Reverse map: GHL stage name → TicketStatus
-const REVERSE_STAGE_MAP: Record<string, TicketStatus> = Object.fromEntries(
-  Object.entries(STAGE_MAP).map(([status, name]) => [name.toLowerCase(), status as TicketStatus])
-);
+// Reverse map: exact GHL stage name → TicketStatus
+// Keys are lowercase for case-insensitive lookup.
+const REVERSE_STAGE_MAP: Record<string, TicketStatus> = {
+  'new':                  'new',
+  'triaged':              'triaged',
+  'in progress':          'in_progress',
+  'waiting on client':    'waiting_client',
+  'waiting on internal':  'waiting_internal',
+  'resolved':             'resolved',
+  'closed':               'closed',
+  'escalated':            'escalated',
+};
 
 function stageNameToStatus(name: string): TicketStatus | null {
-  return REVERSE_STAGE_MAP[name.toLowerCase()] ?? null;
+  return REVERSE_STAGE_MAP[name.trim().toLowerCase()] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -438,17 +446,19 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
     return json({ received: true, handled: false, reason: `Unhandled event: ${eventType}` }, 200, '');
   }
 
-  const opportunityId = payload.id as string | undefined;
-  const newStageName  = (payload.stage as Record<string, unknown>)?.name as string | undefined;
+  const opportunityId = payload.opportunityId as string | undefined;
+  const newStage      = payload.newStage      as string | undefined;
   const locationId    = payload.locationId as string | undefined;
 
-  if (!opportunityId || !newStageName || !locationId) {
-    return json({ error: 'Missing required fields: id, stage.name, locationId' }, 422, '');
+  if (!opportunityId || !newStage || !locationId) {
+    return json({ error: 'Missing required fields: opportunityId, newStage, locationId' }, 422, '');
   }
 
-  const newStatus = stageNameToStatus(newStageName);
+  const newStatus = stageNameToStatus(newStage);
   if (!newStatus) {
-    return json({ received: true, handled: false, reason: `Unknown stage name: ${newStageName}` }, 200, '');
+    // Unknown stage — return 200 so GHL does not retry
+    console.log(`[webhook] Unrecognised stage: "${newStage}" — skipping`);
+    return json({ received: true, handled: false, reason: `Unknown stage: ${newStage}` }, 200, '');
   }
 
   try {
