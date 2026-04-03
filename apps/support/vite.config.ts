@@ -1,19 +1,21 @@
 import { resolve } from 'path';
 import { defineConfig } from 'vite';
 
-// Setting root to src/pages so HTML files build to dist/ root (not dist/src/pages/).
-// outDir must be absolute when root is overridden, or it resolves relative to root.
 const projectRoot = resolve(__dirname);
 const pagesDir    = resolve(projectRoot, 'src/pages');
 const distDir     = resolve(projectRoot, 'dist');
 
 export default defineConfig({
-  // Root = where the HTML files live — Vite/Rollup uses this as the base path
-  // for HTML entry points, so they output to dist/chat.html, not dist/src/pages/chat.html.
-  root: pagesDir,
+  // root = pagesDir: HTML entry points are relative to src/pages/
+  // → chat.html outputs to dist/chat.html (not dist/src/pages/chat.html)
+  root:   pagesDir,
+  // envDir must be absolute project root so .env is found next to vite.config.ts
+  envDir: projectRoot,
 
   build: {
-    outDir:      distDir,   // absolute path — always resolves to apps/support/dist/
+    // Absolute outDir so it always resolves to apps/support/dist/
+    // regardless of the root override
+    outDir:      distDir,
     emptyOutDir: true,
     rollupOptions: {
       input: {
@@ -23,23 +25,11 @@ export default defineConfig({
     },
   },
 
-  // ---------------------------------------------------------------------------
-  // Env vars (VITE_* auto-exposed)
-  // envDir must point to project root so .env is found next to vite.config.ts
-  // ---------------------------------------------------------------------------
-  envDir: projectRoot,
-
-  // ---------------------------------------------------------------------------
-  // Dev server
-  // ---------------------------------------------------------------------------
   server: {
     port: 5173,
     open: '/chat.html',
   },
 
-  // ---------------------------------------------------------------------------
-  // Resolve aliases
-  // ---------------------------------------------------------------------------
   resolve: {
     alias: {
       '@':         resolve(projectRoot, 'src'),

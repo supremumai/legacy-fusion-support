@@ -22,6 +22,9 @@ directory = "dist"
 [vars]
 SUPABASE_URL          = "https://ckbwpsrlphwgkqyimbck.supabase.co"
 SUPPORT_CORS_ORIGIN   = "https://legacy-fusion-support.hector-0b9.workers.dev"
+# GHL_LOCATION_ID is non-sensitive — it's visible in the GHL dashboard URL
+# Replace with the actual location ID before deploying
+GHL_LOCATION_ID       = ""
 
 # ---------------------------------------------------------------------------
 # Secrets — set via Wrangler CLI, never committed:

@@ -430,12 +430,16 @@ async function handleHealth(env: Env): Promise<Response> {
     supabaseDetail = e instanceof Error ? e.message : String(e);
   }
 
-  // GHL check — GET /pipelines/ (location-token scoped, validates the token the system actually uses)
+  // GHL check — GET location record via v2 API (location-token scoped)
+  const GHL_V2_BASE = 'https://services.leadconnectorhq.com';
   let ghlStatus: 'connected' | 'error' = 'error';
   let ghlDetail = '';
   try {
-    const res = await fetch(`${GHL_V1_BASE}/pipelines/`, {
-      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    const res = await fetch(`${GHL_V2_BASE}/locations/${env.GHL_LOCATION_ID}`, {
+      headers: {
+        Authorization: `Bearer ${env.GHL_LOCATION_TOKEN}`,
+        Version:       '2021-07-28',
+      },
     });
     ghlStatus  = res.ok ? 'connected' : 'error';
     if (!res.ok) ghlDetail = `HTTP ${res.status}`;
@@ -449,7 +453,7 @@ async function handleHealth(env: Env): Promise<Response> {
     project:   'legacy-fusion-support',
     supabase:  supabaseStatus,
     ghl:       ghlStatus,
-    ghlNote:   'using location token against /v1/pipelines/',
+    ghlNote:   'using location token against GHL v2 /locations/:id',
     timestamp,
   };
   if (supabaseDetail) body.supabaseDetail = supabaseDetail;
