@@ -375,6 +375,9 @@ async function upsertTicketStatus(
 // Routes Anthropic calls server-side — keeps ANTHROPIC_API_KEY out of the browser.
 // ---------------------------------------------------------------------------
 async function handleAIChat(req: Request, env: Env, origin: string): Promise<Response> {
+  console.log('[ai/chat] received request');
+  console.log('[ai/chat] ANTHROPIC_API_KEY bound:', !!env.ANTHROPIC_API_KEY);
+
   if (!env.ANTHROPIC_API_KEY) {
     return json({ error: 'ANTHROPIC_API_KEY not bound' }, 503, origin);
   }
@@ -387,9 +390,14 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
   }
 
   const { messages, systemPrompt } = body;
+  console.log('[ai/chat] messages count:', messages?.length);
+
+  if (!messages || !systemPrompt) {
+    return json({ error: 'messages and systemPrompt are required' }, 400, origin);
+  }
 
   if (!Array.isArray(messages) || messages.length === 0) {
-    return json({ error: 'messages array is required and must be non-empty' }, 400, origin);
+    return json({ error: 'messages array must be non-empty' }, 400, origin);
   }
 
   try {
@@ -403,7 +411,7 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
       body: JSON.stringify({
         model:      'claude-haiku-4-5-20251001',
         max_tokens: 1000,
-        system:     systemPrompt ?? '',
+        system:     systemPrompt,
         messages:   messages.map(m => ({
           role:    m.role === 'system' ? 'user' : m.role,
           content: m.content,
@@ -411,17 +419,32 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
       }),
     });
 
+    console.log('[ai/chat] Anthropic status:', res.status);
+    const raw = await res.text();
+    console.log('[ai/chat] Anthropic raw response:', raw.slice(0, 200));
+
     if (!res.ok) {
-      const err = await res.text();
-      return json({ error: `Anthropic error ${res.status}`, detail: err }, 502, origin);
+      return json({ error: `Anthropic error ${res.status}`, detail: raw }, 502, origin);
     }
 
-    const data = (await res.json()) as { content: Array<{ type: string; text: string }> };
-    const text = data.content?.find((b) => b.type === 'text')?.text ?? '';
+    let data: { content: Array<{ type: string; text: string }> };
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return json({ error: 'Failed to parse Anthropic response', raw: raw.slice(0, 500) }, 502, origin);
+    }
+
+    const text = data.content?.[0]?.text ?? '';
+    if (!text) {
+      console.warn('[ai/chat] empty content from Anthropic, content:', JSON.stringify(data.content));
+      return json({ response: '', error: 'empty content from Anthropic' }, 200, origin);
+    }
+
     return json({ response: text }, 200, origin);
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    console.error('[ai/chat] fetch error:', msg);
     return json({ error: 'AI call failed', detail: msg }, 502, origin);
   }
 }
