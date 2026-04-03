@@ -277,7 +277,7 @@
 
       // Validate agent role via Supabase profile (requires a matching Supabase session)
       try {
-        const { getSession, getProfile, signOut: supaSignOut } = await import('../services/supabase.js');
+        const { getSession, getProfile, signOut: supaSignOut } = await import('../services/supabase.ts');
         const session = await getSession();
 
         if (!session) {
@@ -336,7 +336,7 @@
       document.getElementById('agentLoginBtn').disabled = true;
 
       try {
-        const { signInWithPassword } = await import('../services/supabase.js');
+        const { signInWithPassword } = await import('../services/supabase.ts');
         await signInWithPassword(email, password);
         // Re-run auth to validate role
         await initAuth();
@@ -364,7 +364,7 @@
     // Sign out
     document.getElementById('signOutBtn').addEventListener('click', async () => {
       if (IS_DEMO) return;
-      const { signOut } = await import('../services/supabase.js');
+      const { signOut } = await import('../services/supabase.ts');
       await signOut();
       location.reload();
     });
@@ -594,7 +594,7 @@
 
       if (IS_DEMO) return; // no-op in demo (supabase.ts returns mock channel)
 
-      const { subscribeToTicket } = await import('../services/supabase.js');
+      const { subscribeToTicket } = await import('../services/supabase.ts');
       activeChannel = subscribeToTicket(ticketId, currentLocationId, (message) => {
         // Append new message to workspace thread
         appendWsBubbleFromMessage(message);
@@ -639,7 +639,7 @@
 
       if (IS_DEMO) return;
 
-      const { subscribeToTicketStatus } = await import('../services/supabase.js');
+      const { subscribeToTicketStatus } = await import('../services/supabase.ts');
       activeStatusChannel = subscribeToTicketStatus(ghlOpportunityId, currentLocationId, (update) => {
         const newStatus = update.status;
 
@@ -795,7 +795,7 @@
 
       try {
         if (!IS_DEMO) {
-          const { addMessage } = await import('../services/supabase.js');
+          const { addMessage } = await import('../services/supabase.ts');
           await addMessage(activeTicketId, 'agent', text, currentLocationId, false);
         }
         // Demo: bubble already appended, nothing more to do
@@ -830,7 +830,7 @@
 
       try {
         if (!IS_DEMO) {
-          const { addMessage } = await import('../services/supabase.js');
+          const { addMessage } = await import('../services/supabase.ts');
           await addMessage(activeTicketId, 'agent', text, currentLocationId, true);
         }
       } catch (err) {
@@ -925,7 +925,7 @@
           setActionsBusy(true);
           try {
             if (!IS_DEMO) {
-              const { updateTicketStatus } = await import('../services/ghl.js');
+              const { updateTicketStatus } = await import('../services/ghl.ts');
               await updateTicketStatus(activeTicketId, 'triaged');
             }
             // Update in-memory ticket assignedTo
@@ -970,7 +970,7 @@
       setActionsBusy(true);
       try {
         if (!IS_DEMO) {
-          const { updateTicketStatus } = await import('../services/ghl.js');
+          const { updateTicketStatus } = await import('../services/ghl.ts');
           await updateTicketStatus(activeTicketId, 'escalated');
         }
         mutateTicketStatus(activeTicketId, 'escalated');
@@ -992,7 +992,7 @@
       setActionsBusy(true);
       try {
         if (!IS_DEMO) {
-          const { updateTicketStatus } = await import('../services/ghl.js');
+          const { updateTicketStatus } = await import('../services/ghl.ts');
           await updateTicketStatus(activeTicketId, 'resolved');
         }
         mutateTicketStatus(activeTicketId, 'resolved');
@@ -1014,7 +1014,7 @@
       setActionsBusy(true);
       try {
         if (!IS_DEMO) {
-          const { updateTicketStatus } = await import('../services/ghl.js');
+          const { updateTicketStatus } = await import('../services/ghl.ts');
           await updateTicketStatus(activeTicketId, 'closed');
         }
         removeTicketFromList(activeTicketId);

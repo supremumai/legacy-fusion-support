@@ -232,7 +232,7 @@
       document.getElementById('loginSendBtn').disabled = true;
 
       try {
-        const { sendMagicLink } = await import('../services/supabase.js');
+        const { sendMagicLink } = await import('../services/supabase.ts');
         await sendMagicLink(email);
         document.getElementById('loginInputState').classList.add('hidden');
         document.getElementById('loginConfirm').classList.remove('hidden');
@@ -251,7 +251,7 @@
     // Sign out
     document.getElementById('signOutBtn').addEventListener('click', async () => {
       if (IS_DEMO) return;
-      const { signOut } = await import('../services/supabase.js');
+      const { signOut } = await import('../services/supabase.ts');
       await signOut();
       location.reload();
     });
@@ -400,7 +400,7 @@
 
       if (IS_DEMO) return; // no-op in demo mode (supabase.ts returns mock channel)
 
-      const { subscribeToTicket: subscribe } = await import('../services/supabase.js');
+      const { subscribeToTicket: subscribe } = await import('../services/supabase.ts');
       activeChannel = subscribe(ticketId, currentLocationId, (message) => {
         appendThreadBubble(message.role, message.content);
         document.getElementById('messageThread').scrollTop =
@@ -538,7 +538,7 @@
         if (IS_DEMO) {
           aiText = await mockAIResponse(aiResponseCount);
         } else {
-          const { continueConversation } = await import('../services/legacyzero.js');
+          const { continueConversation } = await import('../services/legacyzero.ts');
           aiText = await continueConversation(intakeMessages, text);
         }
 
@@ -576,7 +576,7 @@
         await new Promise(r => setTimeout(r, 300));
         triage = DEMO_TRIAGE_RESULT;
       } else {
-        const { triageConversation } = await import('../services/legacyzero.js');
+        const { triageConversation } = await import('../services/legacyzero.ts');
         triage = await triageConversation(intakeMessages);
       }
 
@@ -598,7 +598,7 @@
         DEMO_DATA.messages[newTicket.id] = [...intakeMessages];
         DEMO_DATA.tickets.unshift(newTicket);
       } else {
-        const { createTicket } = await import('../services/ghl.js');
+        const { createTicket } = await import('../services/ghl.ts');
         newTicket = await createTicket({
           contactId: 'unknown', // real contactId injected post-auth
           title,
@@ -646,7 +646,7 @@
         if (!DEMO_DATA.messages[activeTicketId]) DEMO_DATA.messages[activeTicketId] = [];
         DEMO_DATA.messages[activeTicketId].push(clientMsg);
       } else {
-        const { addMessage } = await import('../services/supabase.js');
+        const { addMessage } = await import('../services/supabase.ts');
         await addMessage(activeTicketId, 'client', text, currentLocationId, false);
       }
 
@@ -658,7 +658,7 @@
         if (IS_DEMO) {
           aiText = await mockAIResponse(Math.floor(Math.random() * 2));
         } else {
-          const { continueConversation } = await import('../services/legacyzero.js');
+          const { continueConversation } = await import('../services/legacyzero.ts');
           aiText = await continueConversation([...currentMessages, clientMsg], text);
         }
 
@@ -670,7 +670,7 @@
         if (IS_DEMO) {
           DEMO_DATA.messages[activeTicketId].push(aiMsg);
         } else {
-          const { addMessage } = await import('../services/supabase.js');
+          const { addMessage } = await import('../services/supabase.ts');
           await addMessage(activeTicketId, 'ai', aiText, currentLocationId, false);
         }
 
