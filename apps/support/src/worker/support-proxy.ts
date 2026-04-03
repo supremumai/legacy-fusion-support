@@ -4,18 +4,17 @@ import type { Ticket, Contact, TicketStatus, TicketCategory, TicketPriority } fr
 // Environment
 // ---------------------------------------------------------------------------
 export interface Env {
-  GHL_API_KEY: string;
-  GHL_PIPELINE_ID: string;
-  GHL_LOCATION_ID: string;
-  SUPPORT_CORS_ORIGIN: string;
-  GHL_WEBHOOK_SECRET: string;
-  // Supabase service-role key — used server-side only in the Worker
-  SUPABASE_URL: string;
+  GHL_AGENCY_TOKEN:          string;
+  GHL_LOCATION_TOKEN:        string;
+  GHL_LOCATION_ID:           string;
+  SUPPORT_CORS_ORIGIN:       string;
+  GHL_WEBHOOK_SECRET:        string;
+  SUPABASE_URL:              string;
   SUPABASE_SERVICE_ROLE_KEY: string;
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline stage mapping
+// Pipeline stage mapping (TicketStatus → GHL stage name)
 // ---------------------------------------------------------------------------
 const STAGE_MAP: Record<TicketStatus, string> = {
   new:              'New',
@@ -28,27 +27,35 @@ const STAGE_MAP: Record<TicketStatus, string> = {
   escalated:        'Escalated',
 };
 
+// Reverse map: GHL stage name → TicketStatus
+const REVERSE_STAGE_MAP: Record<string, TicketStatus> = Object.fromEntries(
+  Object.entries(STAGE_MAP).map(([status, name]) => [name.toLowerCase(), status as TicketStatus])
+);
+
+function stageNameToStatus(name: string): TicketStatus | null {
+  return REVERSE_STAGE_MAP[name.toLowerCase()] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // GHL custom field keys (Opportunity-level)
 // ---------------------------------------------------------------------------
 const CF = {
-  category:   'lf_ticket_category',
-  priority:   'lf_ticket_priority',
-  aiSummary:  'lf_ai_summary',
-  slaDeadline:'lf_sla_deadline',
-  internalId: 'lf_internal_id',
+  category:    'lf_ticket_category',
+  priority:    'lf_ticket_priority',
+  aiSummary:   'lf_ai_summary',
+  slaDeadline: 'lf_sla_deadline',
+  internalId:  'lf_internal_id',
 } as const;
 
 // ---------------------------------------------------------------------------
-// GHL API base
+// GHL API — v1 base (location-token auth)
 // ---------------------------------------------------------------------------
-const GHL_BASE = 'https://services.leadconnectorhq.com';
+const GHL_V1_BASE = 'https://rest.gohighlevel.com/v1';
 
-function ghlHeaders(apiKey: string): HeadersInit {
+function ghlHeaders(token: string): HeadersInit {
   return {
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
-    Version: '2021-07-28',
   };
 }
 
@@ -57,10 +64,10 @@ function ghlHeaders(apiKey: string): HeadersInit {
 // ---------------------------------------------------------------------------
 function corsHeaders(origin: string): HeadersInit {
   return {
-    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Origin':  origin,
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Max-Age': '86400',
+    'Access-Control-Max-Age':       '86400',
   };
 }
 
@@ -71,10 +78,7 @@ function handlePreflight(origin: string): Response {
 function json(data: unknown, status = 200, origin = '*'): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders(origin),
-    },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
 }
 
@@ -90,7 +94,7 @@ function mapOpportunityToTicket(opp: Record<string, unknown>): Ticket {
     title:            opp.name as string,
     category:         (cf[CF.category] as TicketCategory) ?? 'general',
     priority:         (cf[CF.priority] as TicketPriority) ?? 'medium',
-    status:           mapStageToStatus(opp.pipelineStageId as string, opp.pipelineStageName as string),
+    status:           mapStageToStatus(opp.pipelineStageName as string),
     assignedTo:       (opp.assignedTo as string) ?? undefined,
     slaDeadline:      new Date((cf[CF.slaDeadline] as string) ?? Date.now()),
     createdAt:        new Date(opp.createdAt as string),
@@ -98,16 +102,11 @@ function mapOpportunityToTicket(opp: Record<string, unknown>): Ticket {
   };
 }
 
-function mapStageToStatus(stageId: string, stageName: string): TicketStatus {
-  // Reverse lookup by name (stage IDs are dynamic per pipeline)
-  const entry = Object.entries(STAGE_MAP).find(
-    ([, name]) => name.toLowerCase() === (stageName ?? '').toLowerCase()
-  );
-  return (entry?.[0] as TicketStatus) ?? 'new';
+function mapStageToStatus(stageName: string): TicketStatus {
+  return stageNameToStatus(stageName) ?? 'new';
 }
 
 function mapContactToContact(c: Record<string, unknown>): Contact {
-  const tags = (c.tags as string[]) ?? [];
   return {
     id:              c.id as string,
     ghlContactId:    c.id as string,
@@ -116,7 +115,7 @@ function mapContactToContact(c: Record<string, unknown>): Contact {
     plan:            (c.customFields as Record<string, string>)?.plan ?? undefined,
     mrr:             undefined,
     memberSince:     c.dateAdded ? new Date(c.dateAdded as string) : undefined,
-    pastTicketCount: 0, // enriched separately from Supabase
+    pastTicketCount: 0,
   };
 }
 
@@ -137,12 +136,9 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
   const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
 
   const payload = {
-    pipelineId:      env.GHL_PIPELINE_ID,
-    locationId:      env.GHL_LOCATION_ID,
-    contactId:       body.contactId,
-    name:            body.title,
-    pipelineStageId: null, // GHL resolves "New" by position; will be set via PATCH if needed
-    status:          'open',
+    contactId: body.contactId,
+    name:      body.title,
+    status:    'open',
     customFields: [
       { key: CF.category,    field_value: body.category },
       { key: CF.priority,    field_value: body.priority },
@@ -152,10 +148,10 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     ],
   };
 
-  const res = await fetch(`${GHL_BASE}/opportunities/`, {
-    method: 'POST',
-    headers: ghlHeaders(env.GHL_API_KEY),
-    body: JSON.stringify(payload),
+  const res = await fetch(`${GHL_V1_BASE}/opportunities/`, {
+    method:  'POST',
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    body:    JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -181,29 +177,11 @@ async function updateTicketStatus(
     return json({ error: `Unknown status: ${body.status}` }, 400, origin);
   }
 
-  // Fetch pipeline stages to resolve stage ID
-  const pipelineRes = await fetch(
-    `${GHL_BASE}/opportunities/pipelines/${env.GHL_PIPELINE_ID}?locationId=${env.GHL_LOCATION_ID}`,
-    { headers: ghlHeaders(env.GHL_API_KEY) }
-  );
-
-  if (!pipelineRes.ok) {
-    return json({ error: 'Failed to fetch pipeline stages' }, 502, origin);
-  }
-
-  const pipeline = (await pipelineRes.json()) as { stages: Array<{ id: string; name: string }> };
-  const stage = pipeline.stages.find(
-    (s) => s.name.toLowerCase() === stageName.toLowerCase()
-  );
-
-  if (!stage) {
-    return json({ error: `Stage not found in pipeline: ${stageName}` }, 404, origin);
-  }
-
-  const res = await fetch(`${GHL_BASE}/opportunities/${ghlOpportunityId}`, {
-    method: 'PUT',
-    headers: ghlHeaders(env.GHL_API_KEY),
-    body: JSON.stringify({ pipelineStageId: stage.id }),
+  // GHL v1: PUT /opportunities/:id — pass stage name directly
+  const res = await fetch(`${GHL_V1_BASE}/opportunities/${ghlOpportunityId}`, {
+    method:  'PUT',
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    body:    JSON.stringify({ pipelineStageName: stageName }),
   });
 
   if (!res.ok) {
@@ -220,11 +198,9 @@ async function getTicket(
   env: Env,
   origin: string
 ): Promise<Response> {
-  const [oppRes, ] = await Promise.all([
-    fetch(`${GHL_BASE}/opportunities/${ghlOpportunityId}`, {
-      headers: ghlHeaders(env.GHL_API_KEY),
-    }),
-  ]);
+  const oppRes = await fetch(`${GHL_V1_BASE}/opportunities/${ghlOpportunityId}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+  });
 
   if (!oppRes.ok) {
     return json({ error: 'Opportunity not found' }, 404, origin);
@@ -233,9 +209,8 @@ async function getTicket(
   const opp = (await oppRes.json()) as Record<string, unknown>;
   const ticket = mapOpportunityToTicket(opp);
 
-  // Fetch contact
-  const contactRes = await fetch(`${GHL_BASE}/contacts/${opp.contactId}`, {
-    headers: ghlHeaders(env.GHL_API_KEY),
+  const contactRes = await fetch(`${GHL_V1_BASE}/contacts/${opp.contactId}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
   const contact = contactRes.ok
     ? mapContactToContact((await contactRes.json()) as Record<string, unknown>)
@@ -250,17 +225,16 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
   const limit = parseInt(url.searchParams.get('limit') ?? '50', 10);
 
   const params = new URLSearchParams({
-    pipelineId: env.GHL_PIPELINE_ID,
     locationId: env.GHL_LOCATION_ID,
-    limit: String(Math.min(limit, 100)),
+    limit:      String(Math.min(limit, 100)),
   });
 
   if (statusParam && STAGE_MAP[statusParam]) {
     params.set('pipelineStage', STAGE_MAP[statusParam]);
   }
 
-  const res = await fetch(`${GHL_BASE}/opportunities/search?${params}`, {
-    headers: ghlHeaders(env.GHL_API_KEY),
+  const res = await fetch(`${GHL_V1_BASE}/opportunities/?${params}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
 
   if (!res.ok) {
@@ -280,8 +254,8 @@ async function getContact(
   env: Env,
   origin: string
 ): Promise<Response> {
-  const res = await fetch(`${GHL_BASE}/contacts/${ghlContactId}`, {
-    headers: ghlHeaders(env.GHL_API_KEY),
+  const res = await fetch(`${GHL_V1_BASE}/contacts/${ghlContactId}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
 
   if (!res.ok) {
@@ -293,20 +267,7 @@ async function getContact(
 }
 
 // ---------------------------------------------------------------------------
-// Reverse stage map: GHL stage name → TicketStatus
-// ---------------------------------------------------------------------------
-const REVERSE_STAGE_MAP: Record<string, TicketStatus> = Object.fromEntries(
-  Object.entries(STAGE_MAP).map(([status, name]) => [name.toLowerCase(), status as TicketStatus])
-);
-
-function stageNameToStatus(name: string): TicketStatus | null {
-  return REVERSE_STAGE_MAP[name.toLowerCase()] ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// GHL webhook signature validation
-// Uses HMAC-SHA256 over the raw request body.
-// GHL sends: X-GHL-Signature: sha256=<hex>
+// GHL webhook signature validation (HMAC-SHA256)
 // ---------------------------------------------------------------------------
 async function verifyGHLSignature(req: Request, secret: string): Promise<boolean> {
   const signature = req.headers.get('X-GHL-Signature') ?? '';
@@ -328,7 +289,6 @@ async function verifyGHLSignature(req: Request, secret: string): Promise<boolean
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
 
-  // Timing-safe comparison
   if (actualHex.length !== expectedHex.length) return false;
   let diff = 0;
   for (let i = 0; i < actualHex.length; i++) {
@@ -338,8 +298,7 @@ async function verifyGHLSignature(req: Request, secret: string): Promise<boolean
 }
 
 // ---------------------------------------------------------------------------
-// Supabase upsert helper (server-side, service-role key)
-// Upserts into support_tickets using locationId for RLS context.
+// Supabase upsert: support_tickets (service-role, server-side only)
 // ---------------------------------------------------------------------------
 async function upsertTicketStatus(
   ghlOpportunityId: string,
@@ -347,47 +306,36 @@ async function upsertTicketStatus(
   status: TicketStatus,
   env: Env
 ): Promise<void> {
-  // Set RLS session config via Supabase RPC before the upsert
-  const setConfigRes = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/rpc/set_config`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Prefer':        'return=minimal',
-      },
-      body: JSON.stringify({
-        setting_name: 'app.location_id',
-        new_value:    locationId,
-        is_local:     true,
-      }),
-    }
-  );
+  const setConfigRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/set_config`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'return=minimal',
+    },
+    body: JSON.stringify({ setting_name: 'app.location_id', new_value: locationId, is_local: true }),
+  });
 
   if (!setConfigRes.ok) {
     throw new Error(`set_config failed: ${await setConfigRes.text()}`);
   }
 
-  const upsertRes = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/support_tickets`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Prefer':        'resolution=merge-duplicates,return=minimal',
-      },
-      body: JSON.stringify({
-        ghl_opportunity_id: ghlOpportunityId,
-        location_id:        locationId,
-        status,
-        updated_at:         new Date().toISOString(),
-      }),
-    }
-  );
+  const upsertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      ghl_opportunity_id: ghlOpportunityId,
+      location_id:        locationId,
+      status,
+      updated_at:         new Date().toISOString(),
+    }),
+  });
 
   if (!upsertRes.ok) {
     throw new Error(`Supabase upsert failed: ${await upsertRes.text()}`);
@@ -398,10 +346,8 @@ async function upsertTicketStatus(
 // Webhook handler: POST /webhooks/ghl
 // ---------------------------------------------------------------------------
 async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
-  // Clone request so we can read body twice (once for sig verification)
   const cloned = req.clone();
 
-  // Validate signature
   const valid = await verifyGHLSignature(cloned, env.GHL_WEBHOOK_SECRET);
   if (!valid) {
     return json({ error: 'Invalid signature' }, 401, '');
@@ -416,7 +362,6 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
 
   const eventType = payload.type as string | undefined;
 
-  // Only handle opportunity stage change events
   if (eventType !== 'opportunity.stageChange') {
     return json({ received: true, handled: false, reason: `Unhandled event: ${eventType}` }, 200, '');
   }
@@ -449,19 +394,21 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
 // ---------------------------------------------------------------------------
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
+    const url    = new URL(req.url);
     const method = req.method.toUpperCase();
-    const path = url.pathname;
+    const path   = url.pathname;
 
-    // CORS origin enforcement
+    // GHL webhook — no CORS check, signature validated internally
+    if (method === 'POST' && path === '/webhooks/ghl') {
+      return handleGHLWebhook(req, env);
+    }
+
+    // CORS enforcement for all browser-facing routes
     const requestOrigin = req.headers.get('Origin') ?? '';
     const allowedOrigin = env.SUPPORT_CORS_ORIGIN;
 
     if (method === 'OPTIONS') {
-      // Preflight — only allow from matching origin
-      if (requestOrigin !== allowedOrigin) {
-        return new Response('Forbidden', { status: 403 });
-      }
+      if (requestOrigin !== allowedOrigin) return new Response('Forbidden', { status: 403 });
       return handlePreflight(allowedOrigin);
     }
 
@@ -471,37 +418,27 @@ export default {
 
     const origin = allowedOrigin;
 
-    // Route: POST /ghl/tickets/create
     if (method === 'POST' && path === '/ghl/tickets/create') {
       return createTicket(req, env, origin);
     }
 
-    // Route: PATCH /ghl/tickets/:id/status
     const statusMatch = path.match(/^\/ghl\/tickets\/([^/]+)\/status$/);
     if (method === 'PATCH' && statusMatch) {
       return updateTicketStatus(statusMatch[1], req, env, origin);
     }
 
-    // Route: GET /ghl/tickets/:id
     const ticketMatch = path.match(/^\/ghl\/tickets\/([^/]+)$/);
     if (method === 'GET' && ticketMatch) {
       return getTicket(ticketMatch[1], env, origin);
     }
 
-    // Route: GET /ghl/tickets (list)
     if (method === 'GET' && path === '/ghl/tickets') {
       return listTickets(url, env, origin);
     }
 
-    // Route: GET /ghl/contacts/:id
     const contactMatch = path.match(/^\/ghl\/contacts\/([^/]+)$/);
     if (method === 'GET' && contactMatch) {
       return getContact(contactMatch[1], env, origin);
-    }
-
-    // Route: POST /webhooks/ghl — GHL inbound webhook (no CORS check, signature validated internally)
-    if (method === 'POST' && path === '/webhooks/ghl') {
-      return handleGHLWebhook(req, env);
     }
 
     return json({ error: 'Not found' }, 404, origin);
