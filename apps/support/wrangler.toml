@@ -21,7 +21,7 @@ GHL_LOCATION_ID         = "mIu9cdQYBapF8uAMcpog"
 VITE_SUPABASE_URL       = "https://ckbwpsrlphwgkqyimbck.supabase.co"
 VITE_SUPPORT_WORKER_URL = "https://legacy-fusion-support.hector-0b9.workers.dev"
 VITE_AI_PROVIDER        = "anthropic"
-VITE_DEMO_MODE          = "true"
+VITE_DEMO_MODE          = "false"
 
 # ---------------------------------------------------------------------------
 # Secrets — set via Wrangler CLI / Cloudflare dashboard, never committed:

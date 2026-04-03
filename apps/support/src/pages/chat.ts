@@ -9,7 +9,7 @@ import { createTicket } from '../services/ghl';
 const _urlParams  = new URLSearchParams(window.location.search);
 const _contactId  = _urlParams.get('contactId');
 const _locationId = _urlParams.get('locationId');
-const IS_DEMO = _contactId === 'contact-marco' || _locationId === 'location-demo' || (!_contactId && !_locationId);
+const IS_DEMO = _contactId === 'contact-marco' || _locationId === 'location-demo';
 
 // ---------------------------------------------------------------------------
 // Auth state

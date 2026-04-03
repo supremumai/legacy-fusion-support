@@ -8,7 +8,7 @@ import { updateTicketStatus } from '../services/ghl';
 const _urlParams  = new URLSearchParams(window.location.search);
 const _userId     = _urlParams.get('userId');
 const _locationId = _urlParams.get('locationId');
-const IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo' || (!_userId && !_locationId);
+const IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo';
 
 // ---------------------------------------------------------------------------
 // State
