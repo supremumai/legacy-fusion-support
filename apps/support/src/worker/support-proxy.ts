@@ -7,6 +7,7 @@ export interface Env {
   GHL_AGENCY_TOKEN:          string;
   GHL_LOCATION_TOKEN:        string;
   GHL_LOCATION_ID:           string;
+  GHL_PIPELINE_ID:           string;
   SUPPORT_CORS_ORIGIN:       string;
   GHL_WEBHOOK_SECRET:        string;
   SUPABASE_URL:              string;
@@ -18,8 +19,8 @@ export interface Env {
 // Pipeline stage mapping (TicketStatus → GHL stage name)
 // ---------------------------------------------------------------------------
 const STAGE_MAP: Record<TicketStatus, string> = {
-  new:              'New',
-  triaged:          'Triaged',
+  new:              'New Ticket',
+  triaged:          'Triage',
   in_progress:      'In Progress',
   waiting_client:   'Waiting on Client',
   waiting_internal: 'Waiting on Internal',
@@ -31,8 +32,8 @@ const STAGE_MAP: Record<TicketStatus, string> = {
 // Reverse map: exact GHL stage name → TicketStatus
 // Keys are lowercase for case-insensitive lookup.
 const REVERSE_STAGE_MAP: Record<string, TicketStatus> = {
-  'new':                  'new',
-  'triaged':              'triaged',
+  'new ticket':           'new',
+  'triage':               'triaged',
   'in progress':          'in_progress',
   'waiting on client':    'waiting_client',
   'waiting on internal':  'waiting_internal',
@@ -161,9 +162,10 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
   const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
 
   const payload = {
-    contactId: body.contactId,
-    name:      body.title,
-    status:    'open',
+    contactId:  body.contactId,
+    name:       body.title,
+    pipelineId: env.GHL_PIPELINE_ID,
+    status:     'open',
     customFields: [
       { key: CF.category,    field_value: body.category },
       { key: CF.priority,    field_value: body.priority },
@@ -180,8 +182,9 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    return json({ error: 'GHL create failed', detail: err }, 502, origin);
+    const errText = await res.text();
+    console.error(`[createTicket] GHL error ${res.status}:`, errText);
+    return json({ error: 'GHL opportunity creation failed', status: res.status, detail: errText }, 502, origin);
   }
 
   const opp = (await res.json()) as Record<string, unknown>;
