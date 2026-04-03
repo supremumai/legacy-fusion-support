@@ -1,35 +1,21 @@
-import { defineConfig } from 'vite';
 import { resolve } from 'path';
-
-// Project root = apps/support/ (directory this file lives in)
-const projectRoot = resolve(__dirname);
+import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // ---------------------------------------------------------------------------
-  // Root — HTML entry files live in src/pages/
-  // ---------------------------------------------------------------------------
-  root:      resolve(projectRoot, 'src/pages'),
-  publicDir: resolve(projectRoot, 'public'),
-
-  // ---------------------------------------------------------------------------
-  // Multi-page build
-  // outDir is absolute so it always resolves to apps/support/dist/
-  // regardless of the root override above.
-  // ---------------------------------------------------------------------------
+  // No root override — outDir resolves relative to this file's directory (apps/support/)
   build: {
-    outDir:    resolve(projectRoot, 'dist'),
+    outDir:      'dist',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        chat:    resolve(projectRoot, 'src/pages/chat.html'),
-        control: resolve(projectRoot, 'src/pages/control.html'),
+        chat:    resolve(__dirname, 'src/pages/chat.html'),
+        control: resolve(__dirname, 'src/pages/control.html'),
       },
     },
   },
 
   // ---------------------------------------------------------------------------
   // Env vars (VITE_* prefix auto-exposed by Vite)
-  // envDir points to project root so .env is found next to vite.config.ts
   // Required:
   //   VITE_SUPPORT_WORKER_URL   — Cloudflare Worker URL
   //   VITE_SUPABASE_URL         — Supabase project URL
@@ -37,14 +23,13 @@ export default defineConfig({
   //   VITE_DEMO_MODE            — "true" to skip live API calls
   //   VITE_AI_PROVIDER          — "openai" | "anthropic"
   // ---------------------------------------------------------------------------
-  envDir: projectRoot,
 
   // ---------------------------------------------------------------------------
   // Dev server
   // ---------------------------------------------------------------------------
   server: {
     port: 5173,
-    open: '/chat.html',
+    open: '/src/pages/chat.html',
   },
 
   // ---------------------------------------------------------------------------
@@ -52,9 +37,9 @@ export default defineConfig({
   // ---------------------------------------------------------------------------
   resolve: {
     alias: {
-      '@':         resolve(projectRoot, 'src'),
-      '@types':    resolve(projectRoot, 'src/types'),
-      '@services': resolve(projectRoot, 'src/services'),
+      '@':         resolve(__dirname, 'src'),
+      '@types':    resolve(__dirname, 'src/types'),
+      '@services': resolve(__dirname, 'src/services'),
     },
   },
 });

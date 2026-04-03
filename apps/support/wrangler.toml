@@ -3,25 +3,14 @@ main = "src/worker/support-proxy.ts"
 compatibility_date = "2024-01-01"
 
 # ---------------------------------------------------------------------------
-# Static assets — served from the same Worker domain
-# dist/ is built by `npm run deploy` (vite build runs first, then wrangler deploy)
+# Static assets — served from the same Worker domain.
+# dist/ is built by `npm run deploy` (vite build runs first, then wrangler deploy).
 #
 # Cloudflare dashboard → Workers → Settings → Build → Deploy command:
 #   npm run deploy
-#
-# This ensures dist/ always exists before wrangler deploy runs.
 # ---------------------------------------------------------------------------
 [assets]
 directory = "dist"
-
-# ---------------------------------------------------------------------------
-# Non-secret per-environment vars
-# ---------------------------------------------------------------------------
-[env.staging]
-vars = { SUPPORT_CORS_ORIGIN = "https://support-staging.legacyfusion.ai" }
-
-[env.production]
-vars = { SUPPORT_CORS_ORIGIN = "https://support.legacyfusion.ai" }
 
 # ---------------------------------------------------------------------------
 # Secrets — set via Wrangler CLI, never committed:
@@ -32,7 +21,7 @@ vars = { SUPPORT_CORS_ORIGIN = "https://support.legacyfusion.ai" }
 #   wrangler secret put GHL_WEBHOOK_SECRET
 #   wrangler secret put SUPABASE_URL
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-#   wrangler secret put SUPPORT_CORS_ORIGIN    (if overriding [env.*] vars above)
+#   wrangler secret put SUPPORT_CORS_ORIGIN
 #
 # Secret names (for reference — no values here):
 #   GHL_AGENCY_TOKEN          — GHL agency-level API token
