@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build --outDir dist",
     "preview": "vite preview",
     "deploy:worker": "wrangler publish src/worker/support-proxy.ts"
   },

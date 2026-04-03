@@ -3,7 +3,23 @@ main = "src/worker/support-proxy.ts"
 compatibility_date = "2024-01-01"
 
 # ---------------------------------------------------------------------------
-# Non-secret vars — safe to commit per-environment
+# Build step — runs before wrangler deploy
+# Compiles the Vite frontend into dist/
+# ---------------------------------------------------------------------------
+[build]
+command = "npm run build"
+
+# ---------------------------------------------------------------------------
+# Static assets — served from the same Worker domain
+# After `npm run build`, dist/ contains chat.html, control.html, and JS/CSS.
+# wrangler deploys the Worker AND serves dist/ as static assets.
+# No separate Cloudflare Pages project needed.
+# ---------------------------------------------------------------------------
+[assets]
+directory = "dist"
+
+# ---------------------------------------------------------------------------
+# Non-secret per-environment vars
 # ---------------------------------------------------------------------------
 [env.staging]
 vars = { SUPPORT_CORS_ORIGIN = "https://support-staging.legacyfusion.ai" }
@@ -20,14 +36,14 @@ vars = { SUPPORT_CORS_ORIGIN = "https://support.legacyfusion.ai" }
 #   wrangler secret put GHL_WEBHOOK_SECRET
 #   wrangler secret put SUPABASE_URL
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-#   wrangler secret put SUPPORT_CORS_ORIGIN    (if overriding [vars] above)
+#   wrangler secret put SUPPORT_CORS_ORIGIN    (if overriding [env.*] vars above)
 #
 # Secret names (for reference — no values here):
 #   GHL_AGENCY_TOKEN          — GHL agency-level API token
-#   GHL_LOCATION_TOKEN        — GHL location-level API token (used for all opportunity/contact calls)
+#   GHL_LOCATION_TOKEN        — GHL location-level API token
 #   GHL_LOCATION_ID           — GHL sub-account location ID
 #   GHL_WEBHOOK_SECRET        — HMAC-SHA256 secret from GHL webhook config
 #   SUPABASE_URL              — Supabase project URL
-#   SUPABASE_SERVICE_ROLE_KEY — Supabase service-role key (server-side only, never in Vite bundle)
+#   SUPABASE_SERVICE_ROLE_KEY — Supabase service-role key (server-side only)
 #   SUPPORT_CORS_ORIGIN       — Allowed browser origin for CORS enforcement
 # ---------------------------------------------------------------------------

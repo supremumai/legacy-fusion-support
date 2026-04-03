@@ -1,40 +1,43 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
+// Project root = apps/support/ (directory this file lives in)
+const projectRoot = resolve(__dirname);
+
 export default defineConfig({
   // ---------------------------------------------------------------------------
+  // Root — HTML entry files live in src/pages/
+  // ---------------------------------------------------------------------------
+  root:      resolve(projectRoot, 'src/pages'),
+  publicDir: resolve(projectRoot, 'public'),
+
+  // ---------------------------------------------------------------------------
   // Multi-page build
+  // outDir is absolute so it always resolves to apps/support/dist/
+  // regardless of the root override above.
   // ---------------------------------------------------------------------------
   build: {
+    outDir:    resolve(projectRoot, 'dist'),
+    emptyOutDir: true,
     rollupOptions: {
       input: {
-        chat:    resolve(__dirname, 'src/pages/chat.html'),
-        control: resolve(__dirname, 'src/pages/control.html'),
+        chat:    resolve(projectRoot, 'src/pages/chat.html'),
+        control: resolve(projectRoot, 'src/pages/control.html'),
       },
     },
-    outDir: 'dist',
-    emptyOutDir: true,
   },
 
   // ---------------------------------------------------------------------------
-  // Root — resolve relative to src/pages for dev server HTML files
-  // ---------------------------------------------------------------------------
-  root: resolve(__dirname, 'src/pages'),
-  publicDir: resolve(__dirname, 'public'),
-
-  // ---------------------------------------------------------------------------
-  // Env var exposure
-  // All VITE_* vars are auto-exposed by Vite.
-  // Listed here for documentation — set actual values in .env files.
-  //
+  // Env vars (VITE_* prefix auto-exposed by Vite)
+  // envDir points to project root so .env is found next to vite.config.ts
   // Required:
-  //   VITE_SUPPORT_WORKER_URL   — URL of the deployed Cloudflare Worker proxy
+  //   VITE_SUPPORT_WORKER_URL   — Cloudflare Worker URL
   //   VITE_SUPABASE_URL         — Supabase project URL
-  //   VITE_SUPABASE_ANON_KEY    — Supabase anon/public key
-  //   VITE_DEMO_MODE            — "true" to enable demo data (no live API calls)
+  //   VITE_SUPABASE_ANON_KEY    — Supabase anon key
+  //   VITE_DEMO_MODE            — "true" to skip live API calls
   //   VITE_AI_PROVIDER          — "openai" | "anthropic"
   // ---------------------------------------------------------------------------
-  envDir: resolve(__dirname),
+  envDir: projectRoot,
 
   // ---------------------------------------------------------------------------
   // Dev server
@@ -49,9 +52,9 @@ export default defineConfig({
   // ---------------------------------------------------------------------------
   resolve: {
     alias: {
-      '@':       resolve(__dirname, 'src'),
-      '@types':  resolve(__dirname, 'src/types'),
-      '@services': resolve(__dirname, 'src/services'),
+      '@':         resolve(projectRoot, 'src'),
+      '@types':    resolve(projectRoot, 'src/types'),
+      '@services': resolve(projectRoot, 'src/services'),
     },
   },
 });
