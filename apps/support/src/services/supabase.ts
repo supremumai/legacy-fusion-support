@@ -244,7 +244,10 @@ export async function addMessage(
   locationId: string,
   isInternal = false
 ): Promise<Message> {
-  if (DEMO_MODE) {
+  console.log('[supabase] addMessage called:', ticketId, role, isInternal);
+  console.log('[supabase] IS_DEMO check (locationId):', locationId);
+
+  if (locationId === DEMO_LOCATION_ID) {
     const syntheticMsg: Message = {
       id:         `demo-${Date.now()}`,
       ticketId,

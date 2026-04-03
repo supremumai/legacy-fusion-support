@@ -215,6 +215,7 @@ async function loadTicket(ticket: any) {
 let intakeMessages: any[] = [];
 let aiResponseCount = 0;
 let isSending = false;
+let intakeTempTicketId = '';
 
 const DEMO_AI_RESPONSES = [
   "Thanks for reaching out. Can you tell me a bit more about the issue — when did it start and what exactly are you seeing?",
@@ -270,9 +271,17 @@ async function handleWelcomeSend() {
   if (!text) return;
   input.value = ''; input.style.height = '';
   setSending(true);
+  // Assign a stable temp ID for this intake session
+  if (!intakeTempTicketId) intakeTempTicketId = `intake-${currentUserId}-${Date.now()}`;
   const clientMsg = { id: `intake-${Date.now()}`, role: 'client', content: text, isInternal: false, createdAt: new Date() };
   intakeMessages.push(clientMsg);
   appendIntakeBubble('client', text);
+  // Persist intake message immediately — don't wait for ticket creation
+  if (!IS_DEMO) {
+    addMessage(intakeTempTicketId, 'client', text, currentLocationId, false).catch(e =>
+      console.error('[intake] addMessage client error:', e)
+    );
+  }
   showTyping('intakeThread');
   try {
     const aiText = IS_DEMO ? await mockAIResponse(aiResponseCount) : await continueConversation(intakeMessages, text);
@@ -281,7 +290,14 @@ async function handleWelcomeSend() {
     const aiMsg = { id: `intake-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
     intakeMessages.push(aiMsg);
     appendIntakeBubble('ai', aiText);
-    if (aiResponseCount >= 3) await createTicketFromIntake();
+    // Persist AI response immediately
+    if (!IS_DEMO) {
+      addMessage(intakeTempTicketId, 'ai', aiText, currentLocationId, false).catch(e =>
+        console.error('[intake] addMessage ai error:', e)
+      );
+    }
+    console.log('[intake] aiResponseCount:', aiResponseCount);
+    if (aiResponseCount >= 2) await createTicketFromIntake();
   } catch (err) {
     removeTyping();
     appendIntakeBubble('ai', 'Sorry, something went wrong. Please try again.');
@@ -293,17 +309,25 @@ async function handleWelcomeSend() {
 }
 
 async function createTicketFromIntake() {
+  console.log('[intake] triggering ticket creation...');
   const title = intakeMessages.find(m => m.role === 'client')?.content.slice(0, 80) ?? 'New support request';
-  const triage = IS_DEMO ? DEMO_TRIAGE_RESULT : await triageConversation(intakeMessages);
   let newTicket: any;
-  if (IS_DEMO) {
-    newTicket = { id: `T-${Date.now().toString(36).toUpperCase()}`, ghlOpportunityId: `opp-${Date.now()}`, title, category: triage.category, priority: triage.priority, status: 'new', slaDeadline: new Date(Date.now() + 48 * 3600000), createdAt: new Date(), updatedAt: new Date() };
-    DEMO_DATA.messages[newTicket.id] = [...intakeMessages];
-    DEMO_DATA.tickets.unshift(newTicket);
-  } else {
-    newTicket = await createTicket({ contactId: currentUserId, title, category: triage.category, priority: triage.priority, summary: triage.problem });
+  try {
+    const triage = IS_DEMO ? DEMO_TRIAGE_RESULT : await triageConversation(intakeMessages);
+    console.log('[intake] triage result:', triage);
+    if (IS_DEMO) {
+      newTicket = { id: `T-${Date.now().toString(36).toUpperCase()}`, ghlOpportunityId: `opp-${Date.now()}`, title, category: triage.category, priority: triage.priority, status: 'new', slaDeadline: new Date(Date.now() + 48 * 3600000), createdAt: new Date(), updatedAt: new Date() };
+      DEMO_DATA.messages[newTicket.id] = [...intakeMessages];
+      DEMO_DATA.tickets.unshift(newTicket);
+    } else {
+      newTicket = await createTicket({ contactId: currentUserId, title, category: triage.category, priority: triage.priority, summary: triage.problem });
+    }
+    console.log('[intake] ticket created:', newTicket);
+  } catch (err) {
+    console.error('[intake] error:', err);
+    throw err;
   }
-  intakeMessages = []; aiResponseCount = 0;
+  intakeMessages = []; aiResponseCount = 0; intakeTempTicketId = '';
   renderSidebar(IS_DEMO ? DEMO_DATA.tickets : [newTicket]);
   await loadTicket(newTicket);
   document.getElementById('intakeThread')?.remove();
