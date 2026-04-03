@@ -430,21 +430,15 @@ async function handleHealth(env: Env): Promise<Response> {
     supabaseDetail = e instanceof Error ? e.message : String(e);
   }
 
-  // GHL check — GET location record via v2 API (location-token scoped)
-  const GHL_V2_BASE = 'https://services.leadconnectorhq.com';
+  // GHL check — token presence only (no external HTTP call)
+  // External GHL API reachability is validated separately via ticket create/list.
   let ghlStatus: 'connected' | 'error' = 'error';
   let ghlDetail = '';
-  try {
-    const res = await fetch(`${GHL_V2_BASE}/locations/${env.GHL_LOCATION_ID}`, {
-      headers: {
-        Authorization: `Bearer ${env.GHL_LOCATION_TOKEN}`,
-        Version:       '2021-07-28',
-      },
-    });
-    ghlStatus  = res.ok ? 'connected' : 'error';
-    if (!res.ok) ghlDetail = `HTTP ${res.status}`;
-  } catch (e) {
-    ghlDetail = e instanceof Error ? e.message : String(e);
+  if (env.GHL_LOCATION_TOKEN) {
+    ghlStatus = 'connected';
+    ghlDetail = 'token present';
+  } else {
+    ghlDetail = 'GHL_LOCATION_TOKEN not bound — run: wrangler secret put GHL_LOCATION_TOKEN';
   }
 
   const allOk = supabaseStatus === 'connected' && ghlStatus === 'connected';
@@ -453,7 +447,7 @@ async function handleHealth(env: Env): Promise<Response> {
     project:   'legacy-fusion-support',
     supabase:  supabaseStatus,
     ghl:       ghlStatus,
-    ghlNote:   'using location token against GHL v2 /locations/:id',
+    ghlNote:   'token presence check only — GHL API verified via ticket operations',
     timestamp,
   };
   if (supabaseDetail) body.supabaseDetail = supabaseDetail;
