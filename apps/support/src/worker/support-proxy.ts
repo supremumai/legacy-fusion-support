@@ -401,6 +401,29 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
   }
 
   try {
+    // Normalize roles: 'ai' → 'assistant', anything else non-user → 'user'
+    // Filter to only 'user' | 'assistant', then deduplicate consecutive same roles
+    const normalized = messages
+      .map((m: { role: string; content: string }) => ({
+        role:    m.role === 'assistant' || m.role === 'ai' ? 'assistant' : 'user',
+        content: m.content,
+      }))
+      .filter((m, i, arr) => i === 0 || m.role !== arr[i - 1].role);
+
+    // Anthropic requires at least one message and must start with 'user'
+    const finalMessages = normalized.length > 0 && normalized[0].role === 'user'
+      ? normalized
+      : [{ role: 'user', content: 'Hello' }, ...normalized];
+
+    const requestBody = {
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system:     systemPrompt,
+      messages:   finalMessages,
+    };
+
+    console.log('[ai/chat] request body:', JSON.stringify(requestBody).slice(0, 300));
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -408,20 +431,12 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
         'x-api-key':         env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model:      'claude-haiku-4-5-20251001',
-        max_tokens: 1000,
-        system:     systemPrompt,
-        messages:   messages.map(m => ({
-          role:    m.role === 'system' ? 'user' : m.role,
-          content: m.content,
-        })),
-      }),
+      body: JSON.stringify(requestBody),
     });
 
-    console.log('[ai/chat] Anthropic status:', res.status);
+    console.log('[ai/chat] response status:', res.status);
     const raw = await res.text();
-    console.log('[ai/chat] Anthropic raw response:', raw.slice(0, 200));
+    console.log('[ai/chat] response body:', raw.slice(0, 500));
 
     if (!res.ok) {
       return json({ error: `Anthropic error ${res.status}`, detail: raw }, 502, origin);
