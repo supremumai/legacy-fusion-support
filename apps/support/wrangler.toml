@@ -3,17 +3,13 @@ main = "src/worker/support-proxy.ts"
 compatibility_date = "2024-01-01"
 
 # ---------------------------------------------------------------------------
-# Build step — runs before wrangler deploy
-# Compiles the Vite frontend into dist/
-# ---------------------------------------------------------------------------
-[build]
-command = "npm run build"
-
-# ---------------------------------------------------------------------------
 # Static assets — served from the same Worker domain
-# After `npm run build`, dist/ contains chat.html, control.html, and JS/CSS.
-# wrangler deploys the Worker AND serves dist/ as static assets.
-# No separate Cloudflare Pages project needed.
+# dist/ is built by `npm run deploy` (vite build runs first, then wrangler deploy)
+#
+# Cloudflare dashboard → Workers → Settings → Build → Deploy command:
+#   npm run deploy
+#
+# This ensures dist/ always exists before wrangler deploy runs.
 # ---------------------------------------------------------------------------
 [assets]
 directory = "dist"

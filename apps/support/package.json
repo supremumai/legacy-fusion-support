@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build --outDir dist",
     "preview": "vite preview",
-    "deploy:worker": "wrangler publish src/worker/support-proxy.ts"
+    "deploy": "vite build --outDir dist && wrangler deploy",
+    "deploy:worker": "wrangler deploy"
   },
   "dependencies": {
     "@supabase/supabase-js": "latest"
