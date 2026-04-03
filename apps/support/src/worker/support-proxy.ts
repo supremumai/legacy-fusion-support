@@ -374,8 +374,46 @@ async function upsertTicketStatus(
 async function handleHealth(env: Env): Promise<Response> {
   const timestamp = new Date().toISOString();
 
-  // Supabase check — SELECT 1 from support_messages LIMIT 1
+  // Defensive: check required env bindings are present
+  if (!env.SUPABASE_URL) {
+    return new Response(JSON.stringify({
+      status:  'misconfigured',
+      error:   'SUPABASE_URL is not bound to Worker env — check wrangler.toml [vars] or Cloudflare dashboard secrets',
+      project: 'legacy-fusion-support',
+      timestamp,
+    }), {
+      status:  503,
+      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
+    });
+  }
+
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    return new Response(JSON.stringify({
+      status:  'misconfigured',
+      error:   'SUPABASE_SERVICE_ROLE_KEY secret is not bound — run: wrangler secret put SUPABASE_SERVICE_ROLE_KEY',
+      project: 'legacy-fusion-support',
+      timestamp,
+    }), {
+      status:  503,
+      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
+    });
+  }
+
+  if (!env.GHL_LOCATION_TOKEN) {
+    return new Response(JSON.stringify({
+      status:  'misconfigured',
+      error:   'GHL_LOCATION_TOKEN secret is not bound — run: wrangler secret put GHL_LOCATION_TOKEN',
+      project: 'legacy-fusion-support',
+      timestamp,
+    }), {
+      status:  503,
+      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
+    });
+  }
+
+  // Supabase check — SELECT from support_messages LIMIT 1
   let supabaseStatus: 'connected' | 'error' = 'error';
+  let supabaseDetail = '';
   try {
     const res = await fetch(
       `${env.SUPABASE_URL}/rest/v1/support_messages?select=id&limit=1`,
@@ -386,39 +424,39 @@ async function handleHealth(env: Env): Promise<Response> {
         },
       }
     );
-    if (res.ok) supabaseStatus = 'connected';
-  } catch {
-    // supabaseStatus remains 'error'
+    supabaseStatus = res.ok ? 'connected' : 'error';
+    if (!res.ok) supabaseDetail = `HTTP ${res.status}`;
+  } catch (e) {
+    supabaseDetail = e instanceof Error ? e.message : String(e);
   }
 
-  // GHL check — GET /locations/ (lightweight, auth verification)
+  // GHL check — GET /locations/
   let ghlStatus: 'connected' | 'error' = 'error';
+  let ghlDetail = '';
   try {
     const res = await fetch(`${GHL_V1_BASE}/locations/`, {
       headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
     });
-    // GHL returns 200 or 401 — either way a response means the host is reachable
-    // We consider anything except a network failure as 'connected'
-    if (res.status !== 0) ghlStatus = res.ok ? 'connected' : 'error';
-  } catch {
-    // ghlStatus remains 'error'
+    ghlStatus  = res.ok ? 'connected' : 'error';
+    if (!res.ok) ghlDetail = `HTTP ${res.status}`;
+  } catch (e) {
+    ghlDetail = e instanceof Error ? e.message : String(e);
   }
 
-  const body = {
-    status:    (supabaseStatus === 'connected' && ghlStatus === 'connected') ? 'ok' : 'degraded',
+  const allOk = supabaseStatus === 'connected' && ghlStatus === 'connected';
+  const body: Record<string, unknown> = {
+    status:    allOk ? 'ok' : 'degraded',
     project:   'legacy-fusion-support',
     supabase:  supabaseStatus,
     ghl:       ghlStatus,
     timestamp,
   };
+  if (supabaseDetail) body.supabaseDetail = supabaseDetail;
+  if (ghlDetail)      body.ghlDetail      = ghlDetail;
 
-  const httpStatus = body.status === 'ok' ? 200 : 503;
   return new Response(JSON.stringify(body), {
-    status:  httpStatus,
-    headers: {
-      'Content-Type': 'application/json',
-      ...IFRAME_HEADERS,
-    },
+    status:  allOk ? 200 : 503,
+    headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
   });
 }
 

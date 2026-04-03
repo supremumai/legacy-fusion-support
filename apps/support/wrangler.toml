@@ -15,6 +15,15 @@ preview_urls = false
 directory = "dist"
 
 # ---------------------------------------------------------------------------
+# Non-secret vars — safe to commit
+# Supabase URL is public (project URL is not a secret, anon key is separate)
+# AI provider and demo mode are build-time flags
+# ---------------------------------------------------------------------------
+[vars]
+SUPABASE_URL          = "https://ckbwpsrlphwgkqyimbck.supabase.co"
+SUPPORT_CORS_ORIGIN   = "https://legacy-fusion-support.hector-0b9.workers.dev"
+
+# ---------------------------------------------------------------------------
 # Secrets — set via Wrangler CLI, never committed:
 #
 #   wrangler secret put GHL_AGENCY_TOKEN
