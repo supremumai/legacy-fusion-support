@@ -10,8 +10,13 @@ const WORKER_URL = 'https://legacy-fusion-support.hector-0b9.workers.dev';
 // ---------------------------------------------------------------------------
 // System prompts
 // ---------------------------------------------------------------------------
-const TRIAGE_SYSTEM_PROMPT =
-  'You are a support triage AI. Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation, no text before or after. Just the JSON object itself.\nFormat: {"category":"technical|billing|general|escalated","priority":"urgent|high|medium|low","problem":"one sentence","suggestedAction":"one sentence"}';
+const TRIAGE_SYSTEM_PROMPT = `You are a support ticket triage system. You must respond with ONLY a valid JSON object. No markdown. No code fences. No explanation. No text before or after. Just the raw JSON object.
+
+Required format:
+{"category":"technical","priority":"high","problem":"one sentence description","suggestedAction":"one sentence recommendation"}
+
+category must be one of: technical, billing, general, escalated
+priority must be one of: urgent, high, medium, low`;
 
 const CONVERSATION_SYSTEM_PROMPT =
   'You are LegacyZero, the AI support agent for Legacy Fusion. Be concise, warm, and professional. Collect the information needed to resolve the issue. Once you have enough context, confirm a ticket has been created and an agent will follow up.';
@@ -37,6 +42,8 @@ function messagesToChat(messages: Message[]): ChatMessage[] {
 // The Worker holds the ANTHROPIC_API_KEY and makes the Anthropic call server-side.
 // ---------------------------------------------------------------------------
 async function callWorkerAI(systemPrompt: string, messages: ChatMessage[]): Promise<string> {
+  console.log('[callWorkerAI] systemPrompt preview:', systemPrompt.slice(0, 80));
+  console.log('[callWorkerAI] messages:', JSON.stringify(messages).slice(0, 200));
   const res = await fetch(`${WORKER_URL}/ai/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -70,6 +77,8 @@ export async function triageConversation(messages: Message[]): Promise<AISummary
     normalized.push({ role: 'user', content: 'Please triage this support conversation.' });
   }
 
+  console.log('[triage] sending prompt:', TRIAGE_SYSTEM_PROMPT.slice(0, 100));
+  console.log('[triage] messages:', JSON.stringify(normalized));
   const raw = await callWorkerAI(TRIAGE_SYSTEM_PROMPT, normalized);
 
   let parsed: {
