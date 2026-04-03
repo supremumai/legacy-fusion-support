@@ -359,6 +359,62 @@ async function upsertTicketStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Health check: GET /health
+// Verifies Supabase and GHL connectivity without exposing secrets.
+// No auth required.
+// ---------------------------------------------------------------------------
+async function handleHealth(env: Env): Promise<Response> {
+  const timestamp = new Date().toISOString();
+
+  // Supabase check — SELECT 1 from support_messages LIMIT 1
+  let supabaseStatus: 'connected' | 'error' = 'error';
+  try {
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/support_messages?select=id&limit=1`,
+      {
+        headers: {
+          'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+    if (res.ok) supabaseStatus = 'connected';
+  } catch {
+    // supabaseStatus remains 'error'
+  }
+
+  // GHL check — GET /locations/ (lightweight, auth verification)
+  let ghlStatus: 'connected' | 'error' = 'error';
+  try {
+    const res = await fetch(`${GHL_V1_BASE}/locations/`, {
+      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    });
+    // GHL returns 200 or 401 — either way a response means the host is reachable
+    // We consider anything except a network failure as 'connected'
+    if (res.status !== 0) ghlStatus = res.ok ? 'connected' : 'error';
+  } catch {
+    // ghlStatus remains 'error'
+  }
+
+  const body = {
+    status:    (supabaseStatus === 'connected' && ghlStatus === 'connected') ? 'ok' : 'degraded',
+    project:   'legacy-fusion-support',
+    supabase:  supabaseStatus,
+    ghl:       ghlStatus,
+    timestamp,
+  };
+
+  const httpStatus = body.status === 'ok' ? 200 : 503;
+  return new Response(JSON.stringify(body), {
+    status:  httpStatus,
+    headers: {
+      'Content-Type': 'application/json',
+      ...IFRAME_HEADERS,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Webhook handler: POST /webhooks/ghl
 // ---------------------------------------------------------------------------
 async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
@@ -413,6 +469,11 @@ export default {
     const url    = new URL(req.url);
     const method = req.method.toUpperCase();
     const path   = url.pathname;
+
+    // Health check — no auth, no CORS enforcement
+    if (method === 'GET' && path === '/health') {
+      return handleHealth(env);
+    }
 
     // GHL webhook — no CORS check, signature validated internally
     if (method === 'POST' && path === '/webhooks/ghl') {
