@@ -161,19 +161,16 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
 
   const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
 
+  // Minimal payload — custom fields added after base creation is confirmed working
   const payload = {
-    contactId:  body.contactId,
-    name:       body.title,
+    title:      body.title,
     pipelineId: env.GHL_PIPELINE_ID,
     status:     'open',
-    customFields: [
-      { key: CF.category,    field_value: body.category },
-      { key: CF.priority,    field_value: body.priority },
-      { key: CF.aiSummary,   field_value: body.summary ?? '' },
-      { key: CF.internalId,  field_value: internalId },
-      { key: CF.slaDeadline, field_value: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() },
-    ],
+    contactId:  body.contactId,
+    monetaryValue: 0,
   };
+
+  console.log('[createTicket] GHL request body:', JSON.stringify(payload));
 
   const res = await fetch(`${GHL_V1_BASE}/opportunities/`, {
     method:  'POST',
@@ -181,13 +178,15 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     body:    JSON.stringify(payload),
   });
 
+  console.log('[createTicket] GHL response status:', res.status);
+  const resText = await res.text();
+  console.log('[createTicket] GHL response body:', resText.slice(0, 500));
+
   if (!res.ok) {
-    const errText = await res.text();
-    console.error(`[createTicket] GHL error ${res.status}:`, errText);
-    return json({ error: 'GHL opportunity creation failed', status: res.status, detail: errText }, 502, origin);
+    return json({ error: 'GHL opportunity creation failed', status: res.status, detail: resText }, 502, origin);
   }
 
-  const opp = (await res.json()) as Record<string, unknown>;
+    const opp = JSON.parse(resText) as Record<string, unknown>;
   return json({ ticketId: internalId, ghlOpportunityId: opp.id }, 201, origin);
 }
 
