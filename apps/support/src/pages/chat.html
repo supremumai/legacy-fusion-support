@@ -304,7 +304,8 @@
     // State
     // -----------------------------------------------------------------------
     let activeTicketId = null;
-    let activeChannel = null;  // current Supabase realtime channel
+    let activeChannel = null;        // current Supabase realtime channel
+    const renderedMsgIds = new Set(); // dedup guard — prevents realtime echo double-render
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -395,9 +396,7 @@
 
       const { subscribeToTicket: subscribe } = await import('../services/supabase.ts');
       activeChannel = subscribe(ticketId, currentLocationId, (message) => {
-        appendThreadBubble(message.role, message.content);
-        document.getElementById('messageThread').scrollTop =
-          document.getElementById('messageThread').scrollHeight;
+        appendThreadBubble(message.role, message.content, message.id);
       });
     }
 
@@ -406,6 +405,7 @@
     // -----------------------------------------------------------------------
     async function loadTicket(ticket) {
       activeTicketId = ticket.id;
+      renderedMsgIds.clear(); // reset dedup set for new ticket context
 
       document.getElementById('activeTicketId').textContent = ticket.id;
       document.getElementById('activeTicketSubject').textContent = ticket.title;
@@ -631,8 +631,8 @@
 
       const clientMsg = { id: `msg-${Date.now()}`, role: 'client', content: text, isInternal: false, createdAt: new Date() };
 
-      // Append client bubble to DOM immediately
-      appendThreadBubble('client', text);
+      // Append client bubble immediately — register ID so realtime echo is skipped
+      appendThreadBubble('client', text, clientMsg.id);
 
       // Persist (demo: append to DEMO_DATA in-memory)
       if (IS_DEMO) {
@@ -658,7 +658,7 @@
         removeTyping();
 
         const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
-        appendThreadBubble('ai', aiText);
+        appendThreadBubble('ai', aiText, aiMsg.id);
 
         if (IS_DEMO) {
           DEMO_DATA.messages[activeTicketId].push(aiMsg);
@@ -679,8 +679,13 @@
 
     // -----------------------------------------------------------------------
     // Append bubble to thread mode (active ticket thread)
+    // msgId: optional dedup key — if provided and already rendered, skip
     // -----------------------------------------------------------------------
-    function appendThreadBubble(role, content) {
+    function appendThreadBubble(role, content, msgId = null) {
+      if (msgId) {
+        if (renderedMsgIds.has(msgId)) return; // already rendered (e.g. realtime echo)
+        renderedMsgIds.add(msgId);
+      }
       const thread = document.getElementById('messageThread');
       const el = document.createElement('div');
       el.className = `message-bubble bubble-${role}`;

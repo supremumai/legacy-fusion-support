@@ -31,4 +31,5 @@ VITE_DEMO_MODE          = "true"
 #   wrangler secret put GHL_WEBHOOK_SECRET
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 #   wrangler secret put VITE_SUPABASE_ANON_KEY
+#   wrangler secret put ANTHROPIC_API_KEY
 # ---------------------------------------------------------------------------

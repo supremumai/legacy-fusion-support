@@ -11,6 +11,7 @@ export interface Env {
   GHL_WEBHOOK_SECRET:        string;
   SUPABASE_URL:              string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  ANTHROPIC_API_KEY:         string;
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +368,62 @@ async function upsertTicketStatus(
 }
 
 // ---------------------------------------------------------------------------
+// AI proxy: POST /ai/chat
+// Routes Anthropic calls server-side — keeps ANTHROPIC_API_KEY out of the browser.
+// ---------------------------------------------------------------------------
+async function handleAIChat(req: Request, env: Env, origin: string): Promise<Response> {
+  if (!env.ANTHROPIC_API_KEY) {
+    return json({ error: 'ANTHROPIC_API_KEY not bound' }, 503, origin);
+  }
+
+  let body: { messages: Array<{ role: string; content: string }>; systemPrompt?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400, origin);
+  }
+
+  const { messages, systemPrompt } = body;
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return json({ error: 'messages array is required and must be non-empty' }, 400, origin);
+  }
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'x-api-key':         env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
+        system:     systemPrompt ?? '',
+        messages:   messages.map(m => ({
+          role:    m.role === 'system' ? 'user' : m.role,
+          content: m.content,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      return json({ error: `Anthropic error ${res.status}`, detail: err }, 502, origin);
+    }
+
+    const data = (await res.json()) as { content: Array<{ type: string; text: string }> };
+    const text = data.content?.find((b) => b.type === 'text')?.text ?? '';
+    return json({ response: text }, 200, origin);
+
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return json({ error: 'AI call failed', detail: msg }, 502, origin);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Health check: GET /health
 // Verifies Supabase and GHL connectivity without exposing secrets.
 // No auth required.
@@ -541,6 +598,10 @@ export default {
     }
 
     const origin = allowedOrigin;
+
+    if (method === 'POST' && path === '/ai/chat') {
+      return handleAIChat(req, env, origin);
+    }
 
     if (method === 'POST' && path === '/ghl/tickets/create') {
       return createTicket(req, env, origin);
