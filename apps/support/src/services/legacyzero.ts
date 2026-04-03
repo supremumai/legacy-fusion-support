@@ -5,8 +5,7 @@ import type { Message, AISummary, TicketCategory, TicketPriority } from '../type
 // All AI calls route through the Worker proxy (/ai/chat) to keep API keys
 // out of the browser bundle and avoid CORS issues with direct Anthropic calls.
 // ---------------------------------------------------------------------------
-const WORKER_URL = (import.meta as Record<string, unknown> & { env: Record<string, string> }).env
-  .VITE_SUPPORT_WORKER_URL as string;
+const WORKER_URL = 'https://legacy-fusion-support.hector-0b9.workers.dev';
 
 // ---------------------------------------------------------------------------
 // System prompts

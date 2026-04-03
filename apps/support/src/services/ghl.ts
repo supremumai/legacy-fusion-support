@@ -4,8 +4,7 @@ import { DEMO_DATA } from './tickets';
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
-const WORKER_URL = (import.meta as Record<string, unknown> & { env: Record<string, string> }).env
-  .VITE_SUPPORT_WORKER_URL as string;
+const WORKER_URL = 'https://legacy-fusion-support.hector-0b9.workers.dev';
 
 const DEMO_MODE =
   (import.meta as Record<string, unknown> & { env: Record<string, string> }).env

@@ -102,13 +102,11 @@ const DEMO_MODE =
 
 const DEMO_LOCATION_ID = 'location-demo';
 
-const supabaseUrl = (
-  import.meta as Record<string, unknown> & { env: Record<string, string> }
-).env.VITE_SUPABASE_URL as string;
+const supabaseUrl = 'https://ckbwpsrlphwgkqyimbck.supabase.co';
 
-const supabaseAnonKey = (
-  import.meta as Record<string, unknown> & { env: Record<string, string> }
-).env.VITE_SUPABASE_ANON_KEY as string;
+const supabaseAnonKey =
+  ((import.meta as Record<string, unknown> & { env: Record<string, string> }).env
+    .VITE_SUPABASE_ANON_KEY as string) ?? 'REPLACE_WITH_ANON_KEY';
 
 // ---------------------------------------------------------------------------
 // Supabase client — stateless, no shared auth context
