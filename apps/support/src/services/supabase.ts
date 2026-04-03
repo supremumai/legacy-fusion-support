@@ -104,9 +104,7 @@ const DEMO_LOCATION_ID = 'location-demo';
 
 const supabaseUrl = 'https://ckbwpsrlphwgkqyimbck.supabase.co';
 
-const supabaseAnonKey =
-  ((import.meta as Record<string, unknown> & { env: Record<string, string> }).env
-    .VITE_SUPABASE_ANON_KEY as string) ?? 'REPLACE_WITH_ANON_KEY';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrYndwc3JscGh3Z2txeWltYmNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNjc3NjAsImV4cCI6MjA5MDc0Mzc2MH0.JKZ-QoZDRI2dzZjehn3ShWUPpFtLX3b9196n_GDnTBE';
 
 // ---------------------------------------------------------------------------
 // Supabase client — stateless, no shared auth context
