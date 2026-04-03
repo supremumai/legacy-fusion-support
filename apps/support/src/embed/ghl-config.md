@@ -9,7 +9,7 @@ Create both menu items manually in GHL → Settings → Custom Menus.
 | Field       | Value |
 |-------------|-------|
 | **Name**    | Support |
-| **URL**     | `https://legacy-fusion-support.hector-0b9.workers.dev/chat.html?contactId={{contact.id}}&locationId={{location.id}}` |
+| **URL**     | `https://legacy-fusion-support.hector-0b9.workers.dev/chat.html?userId={{user.id}}&locationId={{location.id}}` |
 | **Open in** | Iframe |
 | **Visibility** | Contacts only (hide from team/agents) |
 

@@ -7,14 +7,14 @@ import { createTicket } from '../services/ghl';
 // Demo mode guard — runtime URL param detection
 // ---------------------------------------------------------------------------
 const _urlParams  = new URLSearchParams(window.location.search);
-const _contactId  = _urlParams.get('contactId');
+const _userId     = _urlParams.get('userId');
 const _locationId = _urlParams.get('locationId');
-const IS_DEMO = _contactId === 'contact-marco' || _locationId === 'location-demo';
+const IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo';
 
 // ---------------------------------------------------------------------------
 // Auth state
 // ---------------------------------------------------------------------------
-let currentContactId  = 'contact-marco';
+let currentUserId     = 'user-legacy';
 let currentLocationId = 'location-demo';
 
 // ---------------------------------------------------------------------------
@@ -93,12 +93,12 @@ function showApp() {
 
 async function initAuth() {
   if (IS_DEMO) {
-    currentContactId  = 'contact-marco';
+    currentUserId     = 'user-legacy';
     currentLocationId = 'location-demo';
     showApp();
     return;
   }
-  if (!_contactId || !_locationId) {
+  if (!_userId || !_locationId) {
     const card = document.querySelector('.login-card')!;
     document.getElementById('loginScreen')!.classList.remove('hidden');
     document.getElementById('loginInputState')!.classList.add('hidden');
@@ -109,7 +109,7 @@ async function initAuth() {
     document.getElementById('chatApp')!.classList.add('hidden');
     return;
   }
-  currentContactId  = _contactId;
+  currentUserId     = _userId;
   currentLocationId = _locationId;
   showApp();
 }
@@ -301,7 +301,7 @@ async function createTicketFromIntake() {
     DEMO_DATA.messages[newTicket.id] = [...intakeMessages];
     DEMO_DATA.tickets.unshift(newTicket);
   } else {
-    newTicket = await createTicket({ contactId: currentContactId, title, category: triage.category, priority: triage.priority, summary: triage.problem });
+    newTicket = await createTicket({ contactId: currentUserId, title, category: triage.category, priority: triage.priority, summary: triage.problem });
   }
   intakeMessages = []; aiResponseCount = 0;
   renderSidebar(IS_DEMO ? DEMO_DATA.tickets : [newTicket]);
