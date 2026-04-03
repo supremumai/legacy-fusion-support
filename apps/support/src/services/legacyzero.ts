@@ -77,6 +77,11 @@ export async function triageConversation(messages: Message[]): Promise<AISummary
     normalized.push({ role: 'user', content: 'Please triage this support conversation.' });
   }
 
+  // Anthropic requires the last message to be role:'user'
+  if (normalized.length === 0 || normalized[normalized.length - 1].role === 'assistant') {
+    normalized.push({ role: 'user', content: 'Based on this conversation, please provide the triage JSON.' });
+  }
+
   console.log('[triage] sending prompt:', TRIAGE_SYSTEM_PROMPT.slice(0, 100));
   console.log('[triage] messages:', JSON.stringify(normalized));
   const raw = await callWorkerAI(TRIAGE_SYSTEM_PROMPT, normalized);
