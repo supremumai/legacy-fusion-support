@@ -158,16 +158,14 @@
        ===================================================================== -->
   <script>
     // -----------------------------------------------------------------------
-    // Demo mode guard
-    // Vite replaces import.meta.env.VITE_DEMO_MODE at build time.
-    // For standalone HTML preview (no bundler), fall back to true.
+    // Demo mode guard — runtime URL param detection
+    // Demo mode when: contactId=contact-marco OR locationId=location-demo
+    // This avoids relying on build-time env vars that aren't available at runtime.
     // -----------------------------------------------------------------------
-    const IS_DEMO = (
-      typeof import !== 'undefined' &&
-      typeof import.meta !== 'undefined'
-        ? (import.meta.env?.VITE_DEMO_MODE === 'true')
-        : true
-    );
+    const _urlParams   = new URLSearchParams(window.location.search);
+    const _contactId   = _urlParams.get('contactId');
+    const _locationId  = _urlParams.get('locationId');
+    const IS_DEMO = _contactId === 'contact-marco' || _locationId === 'location-demo' || (!_contactId && !_locationId);
 
     // -----------------------------------------------------------------------
     // Auth — customer (magic link)
@@ -183,13 +181,8 @@
         return;
       }
 
-      // Read GHL URL params injected by custom menu {{contact.id}} / {{location.id}}
-      const params    = new URLSearchParams(window.location.search);
-      const contactId = params.get('contactId');
-      const locId     = params.get('locationId');
-
-      if (!contactId || !locId) {
-        // Missing params — show access denied (not a login screen for this flow)
+      // Use pre-parsed URL params (contactId / locationId from GHL custom menu)
+      if (!_contactId || !_locationId) {
         document.getElementById('loginScreen').classList.remove('hidden');
         document.getElementById('loginInputState').classList.add('hidden');
         document.getElementById('loginConfirm').classList.add('hidden');
@@ -201,8 +194,8 @@
         return;
       }
 
-      currentContactId  = contactId;
-      currentLocationId = locId;
+      currentContactId  = _contactId;
+      currentLocationId = _locationId;
       showApp();
     }
 

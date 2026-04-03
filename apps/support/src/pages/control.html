@@ -241,13 +241,13 @@
        ===================================================================== -->
   <script>
     // -----------------------------------------------------------------------
-    // Demo mode guard
+    // Demo mode guard — runtime URL param detection
+    // Demo mode when: userId=user-legacy OR locationId=location-demo OR no params at all
     // -----------------------------------------------------------------------
-    const IS_DEMO = (
-      typeof import !== 'undefined' && typeof import.meta !== 'undefined'
-        ? (import.meta.env?.VITE_DEMO_MODE === 'true')
-        : true
-    );
+    const _urlParams  = new URLSearchParams(window.location.search);
+    const _userId     = _urlParams.get('userId');
+    const _locationId = _urlParams.get('locationId');
+    const IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo' || (!_userId && !_locationId);
 
     // -----------------------------------------------------------------------
     // Auth — agent (email + password + role check)
@@ -256,33 +256,28 @@
 
     async function initAuth() {
       if (IS_DEMO) {
-        currentUserId     = 'user-demo';
+        currentUserId     = 'user-legacy';
         currentLocationId = 'location-demo';
         showControlApp();
         return;
       }
 
-      // Read GHL URL params injected by custom menu {{user.id}} / {{location.id}}
-      const params   = new URLSearchParams(window.location.search);
-      const userId   = params.get('userId');
-      const locId    = params.get('locationId');
-
-      if (!userId || !locId) {
+      // Use pre-parsed URL params (_userId / _locationId from GHL custom menu)
+      if (!_userId || !_locationId) {
         showAgentDenied();
         return;
       }
 
-      currentUserId     = userId;
-      currentLocationId = locId;
+      currentUserId     = _userId;
+      currentLocationId = _locationId;
 
-      // Validate agent role via Supabase profile (requires a matching Supabase session)
+      // Optional Supabase role check (if a session exists)
       try {
         const { getSession, getProfile, signOut: supaSignOut } = await import('../services/supabase.ts');
         const session = await getSession();
 
         if (!session) {
-          // No Supabase session — allow access if URL params are present
-          // (role check bypassed; full auth requires Supabase session from magic link or password)
+          // No session — URL param auth only, allow access
           showControlApp();
           return;
         }
@@ -294,10 +289,10 @@
           return;
         }
 
-        currentLocationId = profile.location_id || locId;
+        currentLocationId = profile.location_id || _locationId;
         showControlApp();
       } catch {
-        // If Supabase check fails, fall back to URL-param-only access
+        // Supabase unavailable — fall back to URL-param-only access
         showControlApp();
       }
     }
