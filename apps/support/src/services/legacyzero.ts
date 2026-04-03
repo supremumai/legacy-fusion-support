@@ -59,8 +59,18 @@ async function callWorkerAI(systemPrompt: string, messages: ChatMessage[]): Prom
 // Analyzes a conversation and returns an AISummary.
 // ---------------------------------------------------------------------------
 export async function triageConversation(messages: Message[]): Promise<AISummary> {
-  const chatMessages = messagesToChat(messages);
-  const raw = await callWorkerAI(TRIAGE_SYSTEM_PROMPT, chatMessages);
+  const normalized: ChatMessage[] = messages
+    .map(m => ({
+      role:    (m.role === 'ai' || m.role === 'assistant') ? 'assistant' as const : 'user' as const,
+      content: m.content,
+    }))
+    .filter(m => m.content && m.content.trim().length > 0);
+
+  if (!normalized.find(m => m.role === 'user')) {
+    normalized.push({ role: 'user', content: 'Please triage this support conversation.' });
+  }
+
+  const raw = await callWorkerAI(TRIAGE_SYSTEM_PROMPT, normalized);
 
   let parsed: {
     category: TicketCategory;
@@ -113,10 +123,15 @@ export async function continueConversation(
   messages: Message[],
   userMessage: string
 ): Promise<string> {
-  const history = messagesToChat(messages);
-  const chatMessages: ChatMessage[] = [
-    ...history,
-    { role: 'user', content: userMessage },
-  ];
-  return callWorkerAI(CONVERSATION_SYSTEM_PROMPT, chatMessages);
+  const normalized: ChatMessage[] = messages
+    .map(m => ({
+      role:    (m.role === 'ai' || m.role === 'assistant') ? 'assistant' as const : 'user' as const,
+      content: m.content,
+    }))
+    .filter(m => m.content && m.content.trim().length > 0);
+
+  // Append the new user message
+  normalized.push({ role: 'user', content: userMessage });
+
+  return callWorkerAI(CONVERSATION_SYSTEM_PROMPT, normalized);
 }
