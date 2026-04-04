@@ -181,18 +181,110 @@ function mapContactToContact(c: Record<string, unknown>): Contact {
 }
 
 // ---------------------------------------------------------------------------
+// resolveContactId: userId (GHL user) → GHL contactId
+//
+// Flow:
+//   1. GET /users/{userId} with agency token → extract email + name
+//   2. Search contacts by email in the location
+//   3. If no match → create new contact
+// ---------------------------------------------------------------------------
+async function resolveContactId(userId: string, env: Env): Promise<string> {
+  // Step 1: look up GHL user by ID (requires agency token)
+  let email = '';
+  let firstName = '';
+
+  const userRes = await fetch(`${GHL_V2_BASE}/users/${userId}`, {
+    headers: {
+      Authorization:  `Bearer ${env.GHL_AGENCY_TOKEN}`,
+      'Content-Type': 'application/json',
+      Version:        '2021-07-28',
+    },
+  });
+
+  if (userRes.ok) {
+    const user = (await userRes.json()) as Record<string, unknown>;
+    email     = (user.email as string) ?? '';
+    firstName = (user.name as string)?.split(' ')[0] ?? (user.firstName as string) ?? '';
+    console.log('[resolveContactId] user lookup ok — email:', email, 'name:', firstName);
+  } else {
+    const errText = await userRes.text();
+    console.warn('[resolveContactId] user lookup failed:', userRes.status, errText.slice(0, 200));
+  }
+
+  // Step 2: search contacts by email if we have one
+  if (email) {
+    const searchParams = new URLSearchParams({
+      locationId: env.GHL_LOCATION_ID,
+      email,
+    });
+    const searchRes = await fetch(`${GHL_V2_BASE}/contacts/?${searchParams}`, {
+      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    });
+
+    if (searchRes.ok) {
+      const searchData = (await searchRes.json()) as {
+        contacts?: Array<{ id: string }>;
+      };
+      const firstContact = searchData.contacts?.[0];
+      if (firstContact?.id) {
+        console.log('[resolveContactId] found existing contact by email:', firstContact.id);
+        return firstContact.id;
+      }
+    } else {
+      const errText = await searchRes.text();
+      console.warn('[resolveContactId] contact search failed:', searchRes.status, errText.slice(0, 200));
+    }
+  }
+
+  // Step 3: create a new contact
+  const createBody: Record<string, string> = { locationId: env.GHL_LOCATION_ID };
+  if (firstName) createBody.firstName = firstName;
+  if (email)     createBody.email     = email;
+
+  console.log('[resolveContactId] creating new contact:', JSON.stringify(createBody));
+
+  const createRes = await fetch(`${GHL_V2_BASE}/contacts/`, {
+    method:  'POST',
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    body:    JSON.stringify(createBody),
+  });
+
+  if (!createRes.ok) {
+    const errText = await createRes.text();
+    throw new Error(`Failed to create GHL contact: ${createRes.status} ${errText}`);
+  }
+
+  const created = (await createRes.json()) as { contact?: { id: string }; id?: string };
+  const newId = created.contact?.id ?? created.id ?? '';
+  console.log('[resolveContactId] created new contact:', newId);
+  return newId;
+}
+
+// ---------------------------------------------------------------------------
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
 // POST /ghl/tickets/create
 async function createTicket(req: Request, env: Env, origin: string): Promise<Response> {
   const body = await req.json<{
-    contactId: string;
+    userId: string;
     title: string;
     category: TicketCategory;
     priority: TicketPriority;
     summary?: string;
   }>();
+
+  // Resolve GHL userId → contactId before creating the opportunity
+  let contactId: string;
+  try {
+    contactId = await resolveContactId(body.userId, env);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[createTicket] resolveContactId failed:', msg);
+    return json({ error: 'Failed to resolve GHL contact', detail: msg }, 502, origin);
+  }
+
+  console.log('[createTicket] resolved contactId:', contactId);
 
   const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
 
@@ -203,7 +295,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     name:            body.title,
     pipelineStageId: null,
     status:          'open',
-    contactId:       body.contactId,
+    contactId,
     monetaryValue:   0,
   };
 
