@@ -305,3 +305,19 @@ body {
   border-color: rgba(0, 229, 255, 0.35);
   color: var(--text-secondary);
 }
+
+/* ---------------------------------------------------------------------------
+   Mobile — shared responsive rules
+   --------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .glass-card {
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .btn-gold,
+  .btn-cyan {
+    min-height: 48px;
+    font-size: 0.85rem;
+    width: 100%;
+  }
+}

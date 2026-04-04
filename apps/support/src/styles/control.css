@@ -811,3 +811,49 @@
 .hidden {
   display: none !important;
 }
+
+/* ---------------------------------------------------------------------------
+   Mobile — control center responsive layout (≤768px)
+   --------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  /* Stack panels vertically */
+  #cc-view,
+  .control-layout { flex-direction: column; }
+
+  /* Queue panel — horizontal scrolling tabs on mobile */
+  .queue-panel {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--cyan-border);
+    padding: 8px;
+    gap: 6px;
+  }
+  .queue-panel .q-section { display: none; }
+  .q-item {
+    white-space: nowrap;
+    border-radius: 999px;
+    border: 1px solid var(--cyan-border);
+    padding: 6px 12px;
+    flex-shrink: 0;
+    border-bottom: none;
+  }
+  .q-item.active { border-color: var(--cyan); }
+
+  /* Ticket list — full width */
+  .ticket-list { width: 100%; border-right: none; max-height: 40vh; overflow-y: auto; }
+
+  /* Workspace — full width */
+  .workspace { width: 100%; }
+
+  /* Workspace header wraps */
+  .ws-header { flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
+  .ws-actions { flex-wrap: wrap; gap: 4px; }
+  .ws-btn { font-size: 0.62rem; padding: 4px 8px; }
+
+  /* Login screen */
+  #agentLogin { padding: 24px 16px; }
+  #agentLogin .glass-card { width: 100%; max-width: 100%; }
+}
