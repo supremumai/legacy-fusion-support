@@ -43,11 +43,14 @@ async function workerFetch<T>(
 // createTicket
 // ---------------------------------------------------------------------------
 export interface CreateTicketParams {
-  contactId: string;
-  title: string;
-  category: TicketCategory;
-  priority: TicketPriority;
-  summary?: string;
+  userId:     string;
+  locationId: string;
+  userName:   string;
+  userEmail:  string;
+  title:      string;
+  category:   TicketCategory;
+  priority:   TicketPriority;
+  summary?:   string;
 }
 
 export async function createTicket(params: CreateTicketParams): Promise<Ticket> {
@@ -58,29 +61,20 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
 
   console.log('[ghl] createTicket params:', JSON.stringify(params));
 
-  // Guard: skip GHL if contactId is not a real GHL ID (test values, short IDs, etc.)
-  const isValidGhlId = params.contactId && params.contactId.length >= 20 && !params.contactId.startsWith('test-');
-  if (!isValidGhlId) {
-    console.warn('[ghl] skipping GHL — invalid contactId format:', params.contactId);
-    const mockId = `T-${Date.now().toString(36).toUpperCase()}`;
-    return {
-      id:               mockId,
-      ghlOpportunityId: `mock-${mockId}`,
-      title:            params.title,
-      category:         params.category,
-      priority:         params.priority,
-      status:           'new',
-      slaDeadline:      new Date(Date.now() + 48 * 3600000),
-      createdAt:        new Date(),
-      updatedAt:        new Date(),
-    } as Ticket;
-  }
-
   const result = await workerFetch<{ ticketId: string; ghlOpportunityId: string }>(
     '/ghl/tickets/create',
     {
       method: 'POST',
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        userId:    params.userId,
+        locationId: params.locationId,
+        userName:  params.userName,
+        userEmail: params.userEmail,
+        title:     params.title,
+        category:  params.category,
+        priority:  params.priority,
+        summary:   params.summary,
+      }),
     }
   );
 

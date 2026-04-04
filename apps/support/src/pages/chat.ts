@@ -7,8 +7,10 @@ import { createTicket } from '../services/ghl';
 // Demo mode guard — runtime URL param detection
 // ---------------------------------------------------------------------------
 const _urlParams  = new URLSearchParams(window.location.search);
-const _userId     = _urlParams.get('userId');
-const _locationId = _urlParams.get('locationId');
+const _userId     = _urlParams.get('userId') ?? '';
+const _locationId = _urlParams.get('locationId') ?? '';
+const _userName   = _urlParams.get('userName') ?? '';
+const _userEmail  = _urlParams.get('userEmail') ?? '';
 const IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo';
 
 // ---------------------------------------------------------------------------
@@ -320,7 +322,7 @@ async function createTicketFromIntake() {
       DEMO_DATA.messages[newTicket.id] = [...intakeMessages];
       DEMO_DATA.tickets.unshift(newTicket);
     } else {
-      newTicket = await createTicket({ contactId: currentUserId, title, category: triage.category, priority: triage.priority, summary: triage.problem });
+      newTicket = await createTicket({ userId: _userId, locationId: _locationId, userName: _userName, userEmail: _userEmail, title, category: triage.category, priority: triage.priority, summary: triage.problem });
     }
     console.log('[intake] ticket created:', newTicket);
   } catch (err) {
