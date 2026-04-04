@@ -58,15 +58,50 @@ const CF = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// GHL API — v1 base (location-token auth)
+// GHL API — v2 base (location-token auth + Version header)
 // ---------------------------------------------------------------------------
-const GHL_V1_BASE = 'https://rest.gohighlevel.com/v1';
+const GHL_V2_BASE = 'https://services.leadconnectorhq.com';
 
 function ghlHeaders(token: string): HeadersInit {
   return {
-    Authorization: `Bearer ${token}`,
+    Authorization:  `Bearer ${token}`,
     'Content-Type': 'application/json',
+    Version:        '2021-07-28',
   };
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline stage cache (Worker lifetime — no cold-start penalty on repeat reqs)
+// stageName (lowercase) → stageId
+// ---------------------------------------------------------------------------
+let stageIdCache: Map<string, string> | null = null;
+
+async function getPipelineStageMap(env: Env): Promise<Map<string, string>> {
+  if (stageIdCache) return stageIdCache;
+
+  const res = await fetch(`${GHL_V2_BASE}/opportunities/pipelines/${env.GHL_PIPELINE_ID}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Failed to fetch pipeline stages: ${res.status} ${err}`);
+  }
+
+  const data = (await res.json()) as {
+    pipeline?: { stages?: Array<{ id: string; name: string }> };
+    stages?:   Array<{ id: string; name: string }>;
+  };
+
+  const stages = data.pipeline?.stages ?? data.stages ?? [];
+  const map = new Map<string, string>();
+  for (const s of stages) {
+    map.set(s.name.trim().toLowerCase(), s.id);
+  }
+
+  console.log('[getPipelineStageMap] loaded stages:', [...map.entries()]);
+  stageIdCache = map;
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,18 +196,20 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
 
   const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
 
-  // Minimal payload — custom fields added after base creation is confirmed working
+  // v2 payload — pipelineStageId null → GHL places in first stage automatically
   const payload = {
-    title:      body.title,
-    pipelineId: env.GHL_PIPELINE_ID,
-    status:     'open',
-    contactId:  body.contactId,
-    monetaryValue: 0,
+    pipelineId:      env.GHL_PIPELINE_ID,
+    locationId:      env.GHL_LOCATION_ID,
+    name:            body.title,
+    pipelineStageId: null,
+    status:          'open',
+    contactId:       body.contactId,
+    monetaryValue:   0,
   };
 
-  console.log('[createTicket] GHL request body:', JSON.stringify(payload));
+  console.log('[createTicket] GHL v2 request body:', JSON.stringify(payload));
 
-  const res = await fetch(`${GHL_V1_BASE}/opportunities/`, {
+  const res = await fetch(`${GHL_V2_BASE}/opportunities/`, {
     method:  'POST',
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
     body:    JSON.stringify(payload),
@@ -204,11 +241,28 @@ async function updateTicketStatus(
     return json({ error: `Unknown status: ${body.status}` }, 400, origin);
   }
 
-  // GHL v1: PUT /opportunities/:id — pass stage name directly
-  const res = await fetch(`${GHL_V1_BASE}/opportunities/${ghlOpportunityId}`, {
+  // Resolve stage name → stage ID via cached pipeline fetch
+  let stageId: string | undefined;
+  try {
+    const stageMap = await getPipelineStageMap(env);
+    stageId = stageMap.get(stageName.toLowerCase());
+    if (!stageId) {
+      console.warn(`[updateTicketStatus] Stage not found in pipeline map: "${stageName}"`);
+      return json({ error: `Stage not found in pipeline: ${stageName}` }, 400, origin);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return json({ error: 'Failed to resolve pipeline stage', detail: msg }, 502, origin);
+  }
+
+  // GHL v2: PUT /opportunities/:id
+  const updatePayload = { pipelineStageId: stageId, status: 'open' };
+  console.log('[updateTicketStatus] GHL v2 request body:', JSON.stringify(updatePayload));
+
+  const res = await fetch(`${GHL_V2_BASE}/opportunities/${ghlOpportunityId}`, {
     method:  'PUT',
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
-    body:    JSON.stringify({ pipelineStageName: stageName }),
+    body:    JSON.stringify(updatePayload),
   });
 
   if (!res.ok) {
@@ -225,7 +279,7 @@ async function getTicket(
   env: Env,
   origin: string
 ): Promise<Response> {
-  const oppRes = await fetch(`${GHL_V1_BASE}/opportunities/${ghlOpportunityId}`, {
+  const oppRes = await fetch(`${GHL_V2_BASE}/opportunities/${ghlOpportunityId}`, {
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
 
@@ -236,7 +290,7 @@ async function getTicket(
   const opp = (await oppRes.json()) as Record<string, unknown>;
   const ticket = mapOpportunityToTicket(opp);
 
-  const contactRes = await fetch(`${GHL_V1_BASE}/contacts/${opp.contactId}`, {
+  const contactRes = await fetch(`${GHL_V2_BASE}/contacts/${opp.contactId}`, {
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
   const contact = contactRes.ok
@@ -260,7 +314,7 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
     params.set('pipelineStage', STAGE_MAP[statusParam]);
   }
 
-  const res = await fetch(`${GHL_V1_BASE}/opportunities/?${params}`, {
+  const res = await fetch(`${GHL_V2_BASE}/opportunities/?${params}`, {
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
 
@@ -281,7 +335,7 @@ async function getContact(
   env: Env,
   origin: string
 ): Promise<Response> {
-  const res = await fetch(`${GHL_V1_BASE}/contacts/${ghlContactId}`, {
+  const res = await fetch(`${GHL_V2_BASE}/contacts/${ghlContactId}`, {
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
 
