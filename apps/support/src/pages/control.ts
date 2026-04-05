@@ -4,11 +4,12 @@ import { updateTicketStatus, listTickets } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
+// IS_DEMO is mutable — set to false after successful agent login
 // ---------------------------------------------------------------------------
 const _urlParams  = new URLSearchParams(window.location.search);
-const _userId     = _urlParams.get('userId');
-const _locationId = _urlParams.get('locationId');
-const IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo';
+const _userId     = _urlParams.get('userId') ?? '';
+const _locationId = _urlParams.get('locationId') ?? '';
+let IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo';
 
 // ---------------------------------------------------------------------------
 // State
@@ -83,17 +84,42 @@ function showControlApp() {
 }
 
 async function initAuth() {
-  if (IS_DEMO) { currentUserId = 'user-legacy'; currentLocationId = 'location-demo'; showControlApp(); return; }
-  if (!_userId || !_locationId) { showAgentDenied(); return; }
-  currentUserId = _userId; currentLocationId = _locationId;
+  // Demo mode: explicit sentinel values
+  if (_userId === 'user-legacy' || _locationId === 'location-demo') {
+    IS_DEMO = true;
+    currentUserId     = 'user-legacy';
+    currentLocationId = 'location-demo';
+    console.log('[control] IS_DEMO:', IS_DEMO, '| locationId:', currentLocationId);
+    showControlApp();
+    return;
+  }
+
+  // Set URL-param values as initial fallback
+  if (_userId)     currentUserId     = _userId;
+  if (_locationId) currentLocationId = _locationId;
+
   try {
     const session = await getSession();
-    if (!session) { showControlApp(); return; }
-    const profile = await getProfile();
-    if (!profile || profile.role !== 'agent') { await signOut(); showAgentDenied(); return; }
-    currentLocationId = profile.location_id || _locationId;
-    showControlApp();
-  } catch { showControlApp(); }
+    if (session) {
+      const profile = await getProfile();
+      if (!profile || profile.role !== 'agent') {
+        await signOut();
+        showAgentDenied();
+        return;
+      }
+      // Profile location always wins over URL param
+      currentLocationId = profile.location_id || _locationId;
+      currentUserId     = profile.id ?? _userId;
+      IS_DEMO = false;
+    }
+    // No session → show app anyway (agent can login inline)
+  } catch (err) {
+    console.warn('[control] initAuth error:', err);
+  }
+
+  console.log('[control] locationId resolved:', currentLocationId);
+  console.log('[control] IS_DEMO:', IS_DEMO);
+  showControlApp();
 }
 
 document.getElementById('agentLoginBtn')!.addEventListener('click', async () => {
@@ -103,8 +129,12 @@ document.getElementById('agentLoginBtn')!.addEventListener('click', async () => 
   errorEl.classList.add('hidden');
   if (!email || !password) { errorEl.textContent = 'Email and password are required.'; errorEl.classList.remove('hidden'); return; }
   (document.getElementById('agentLoginBtn') as HTMLButtonElement).disabled = true;
-  try { await signInWithPassword(email, password); await initAuth(); }
-  catch (err: any) { errorEl.textContent = err.message ?? 'Sign in failed.'; errorEl.classList.remove('hidden'); (document.getElementById('agentLoginBtn') as HTMLButtonElement).disabled = false; }
+  try {
+    await signInWithPassword(email, password);
+    await initAuth();
+    // After auth resolves locationId, load live tickets
+    await fetchLiveTickets();
+  } catch (err: any) { errorEl.textContent = err.message ?? 'Sign in failed.'; errorEl.classList.remove('hidden'); (document.getElementById('agentLoginBtn') as HTMLButtonElement).disabled = false; }
 });
 
 document.getElementById('agentPassword')!.addEventListener('keydown', (e: Event) => {
