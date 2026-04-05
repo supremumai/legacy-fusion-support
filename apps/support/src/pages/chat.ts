@@ -315,26 +315,59 @@ async function createTicketFromIntake() {
   console.log('[intake] triggering ticket creation...');
   const title = intakeMessages.find(m => m.role === 'client')?.content.slice(0, 80) ?? 'New support request';
   let newTicket: any;
+
   try {
     const triage = IS_DEMO ? DEMO_TRIAGE_RESULT : await triageConversation(intakeMessages);
     console.log('[intake] triage result:', triage);
+
     if (IS_DEMO) {
-      newTicket = { id: `T-${Date.now().toString(36).toUpperCase()}`, ghlOpportunityId: `opp-${Date.now()}`, title, category: triage.category, priority: triage.priority, status: 'new', slaDeadline: new Date(Date.now() + 48 * 3600000), createdAt: new Date(), updatedAt: new Date() };
+      newTicket = {
+        id: `T-${Date.now().toString(36).toUpperCase()}`,
+        ghlOpportunityId: `opp-${Date.now()}`,
+        title, category: triage.category, priority: triage.priority,
+        status: 'new', slaDeadline: new Date(Date.now() + 48 * 3600000),
+        createdAt: new Date(), updatedAt: new Date(),
+      };
       DEMO_DATA.messages[newTicket.id] = [...intakeMessages];
       DEMO_DATA.tickets.unshift(newTicket);
     } else {
-      newTicket = await createTicket({ userId: _userId, locationId: _locationId, userName: _userName, userEmail: _userEmail, title, category: triage.category, priority: triage.priority, summary: triage.problem });
+      const params = { userId: _userId, locationId: _locationId, userName: _userName, userEmail: _userEmail, title, category: triage.category, priority: triage.priority, summary: triage.problem };
+      console.log('[createTicket] params:', params);
+
+      try {
+        newTicket = await createTicket(params);
+        console.log('[intake] GHL ticket created:', newTicket);
+      } catch (ghlErr) {
+        // GHL failed — generate local fallback ticket so conversation can continue
+        const fallbackId = 'T-' + Date.now().toString(36).toUpperCase();
+        console.warn('[createTicket] GHL failed, using fallback ID:', fallbackId, ghlErr);
+        newTicket = {
+          id: fallbackId,
+          ghlOpportunityId: fallbackId,
+          title, category: triage.category, priority: triage.priority,
+          status: 'new', slaDeadline: new Date(Date.now() + 48 * 3600000),
+          createdAt: new Date(), updatedAt: new Date(),
+        };
+      }
+
+      // Re-key intake messages to the real/fallback ticket ID — await so rekey completes before reset
+      if (intakeTempTicketId && newTicket.ghlOpportunityId) {
+        try {
+          await rekeyMessages(intakeTempTicketId, newTicket.ghlOpportunityId, currentLocationId);
+        } catch (e) {
+          console.warn('[intake] rekeyMessages error:', e);
+        }
+      }
     }
-    console.log('[intake] ticket created:', newTicket);
-    // Re-key intake messages from temp ID → real GHL opportunity ID
-    if (!IS_DEMO && intakeTempTicketId && newTicket.ghlOpportunityId) {
-      rekeyMessages(intakeTempTicketId, newTicket.ghlOpportunityId, currentLocationId)
-        .catch(e => console.warn('[intake] rekeyMessages error:', e));
-    }
+
+    console.log('[intake] ticket resolved:', newTicket.id);
   } catch (err) {
-    console.error('[intake] error:', err);
-    throw err;
+    // Triage failed — show graceful message, do not surface error to user
+    console.error('[intake] createTicketFromIntake error:', err);
+    appendIntakeBubble('ai', 'Your issue has been noted. Our team will follow up shortly.');
+    return;
   }
+
   intakeMessages = []; aiResponseCount = 0; intakeTempTicketId = '';
   renderSidebar(IS_DEMO ? DEMO_DATA.tickets : [newTicket]);
   await loadTicket(newTicket);

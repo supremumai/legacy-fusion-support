@@ -204,15 +204,17 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     locationId: env.GHL_LOCATION_ID,
     query:      body.userEmail,
   });
-  console.log('[createTicket] searching contact by query:', body.userEmail);
+  console.log('[createTicket] params:', { userId: body.userId, locationId: body.locationId, userName: body.userName, userEmail: body.userEmail, title: body.title, category: body.category, priority: body.priority });
+  console.log('[createTicket] step1 search query:', body.userEmail);
 
   const searchRes  = await fetch(`${GHL_V2_BASE}/contacts/?${searchParams}`, {
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
   const searchText = await searchRes.text();
+  console.log('[createTicket] step1 search status:', searchRes.status);
+  console.log('[createTicket] step1 search body:', searchText.slice(0, 500));
 
   if (!searchRes.ok) {
-    console.error('[createTicket] contact search failed:', searchRes.status, searchText.slice(0, 300));
     return json({ error: 'GHL contact search failed', status: searchRes.status, detail: searchText }, 502, origin);
   }
 
@@ -229,7 +231,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
       name:       body.userName,
       email:      body.userEmail,
     };
-    console.log('[createTicket] creating new contact:', JSON.stringify(createPayload));
+    console.log('[createTicket] step2 creating contact:', JSON.stringify(createPayload));
 
     const createRes  = await fetch(`${GHL_V2_BASE}/contacts/`, {
       method:  'POST',
@@ -237,15 +239,16 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
       body:    JSON.stringify(createPayload),
     });
     const createText = await createRes.text();
+    console.log('[createTicket] step2 create status:', createRes.status);
+    console.log('[createTicket] step2 create body:', createText.slice(0, 500));
 
     if (!createRes.ok) {
-      console.error('[createTicket] contact create failed:', createRes.status, createText.slice(0, 300));
       return json({ error: 'GHL contact creation failed', status: createRes.status, detail: createText }, 502, origin);
     }
 
     const createData = JSON.parse(createText) as { contact?: { id: string }; id?: string };
     contactId = createData.contact?.id ?? createData.id ?? '';
-    console.log('[createTicket] created new contact:', contactId);
+    console.log('[createTicket] step2 resolved contactId:', contactId);
 
     if (!contactId) {
       return json({ error: 'GHL contact creation returned no ID', detail: createText }, 502, origin);
@@ -264,7 +267,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     monetaryValue:   0,
   };
 
-  console.log('[createTicket] GHL v2 opportunity body:', JSON.stringify(oppPayload));
+  console.log('[createTicket] step3 opportunity payload:', JSON.stringify(oppPayload));
 
   const oppRes  = await fetch(`${GHL_V2_BASE}/opportunities/`, {
     method:  'POST',
@@ -272,9 +275,9 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     body:    JSON.stringify(oppPayload),
   });
 
-  console.log('[createTicket] GHL opportunity status:', oppRes.status);
+  console.log('[createTicket] step3 opp status:', oppRes.status);
   const oppText = await oppRes.text();
-  console.log('[createTicket] GHL opportunity body:', oppText.slice(0, 500));
+  console.log('[createTicket] step3 opp body:', oppText.slice(0, 500));
 
   if (!oppRes.ok) {
     return json({ error: 'GHL opportunity creation failed', status: oppRes.status, detail: oppText }, 502, origin);
