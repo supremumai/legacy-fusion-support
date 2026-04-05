@@ -396,8 +396,9 @@ async function getTicket(
 
 // GET /ghl/tickets?status=new&limit=50
 async function listTickets(url: URL, env: Env, origin: string): Promise<Response> {
-  const statusParam = url.searchParams.get('status') as TicketStatus | null;
-  const limit = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  const statusParam    = url.searchParams.get('status') as TicketStatus | null;
+  const contactIdParam = url.searchParams.get('contactId');
+  const limit          = parseInt(url.searchParams.get('limit') ?? '50', 10);
 
   const params = new URLSearchParams({
     location_id:  env.GHL_LOCATION_ID,
@@ -407,6 +408,9 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
 
   if (statusParam && STAGE_MAP[statusParam]) {
     params.set('pipeline_stage_id', STAGE_MAP[statusParam]);
+  }
+  if (contactIdParam) {
+    params.set('contact_id', contactIdParam);
   }
 
   const res = await fetch(`${GHL_V2_BASE}/opportunities/search?${params}`, {

@@ -138,6 +138,7 @@ export async function getTicket(ghlOpportunityId: string): Promise<Ticket> {
 // ---------------------------------------------------------------------------
 export interface ListTicketsFilters {
   locationId?: string;
+  contactId?:  string;
   status?:     TicketStatus;
   limit?:      number;
 }
@@ -156,6 +157,7 @@ export async function listTickets(filters: ListTicketsFilters = {}): Promise<Tic
 
   const params = new URLSearchParams();
   if (filters.locationId) params.set('locationId', filters.locationId);
+  if (filters.contactId)  params.set('contactId', filters.contactId);
   if (filters.status)     params.set('status', filters.status);
   if (filters.limit != null) params.set('limit', String(filters.limit));
 

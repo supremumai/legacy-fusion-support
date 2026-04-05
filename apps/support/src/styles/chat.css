@@ -112,6 +112,20 @@
   max-width: 170px;
 }
 
+.ticket-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.ticket-row-time {
+  font-size: 0.65rem;
+  color: var(--text-muted, #8fa4b5);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .ticket-row-badge {
   font-size: 0.62rem;
   padding: 2px 8px;

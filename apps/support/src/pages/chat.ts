@@ -1,7 +1,7 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { sendMagicLink, signOut, subscribeToTicket, addMessage, getMessages, rekeyMessages } from '../services/supabase';
 import { continueConversation, triageConversation } from '../services/legacyzero';
-import { createTicket } from '../services/ghl';
+import { createTicket, listTickets } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -52,14 +52,15 @@ const DEMO_DATA: {
 // ---------------------------------------------------------------------------
 let activeTicketId: string | null = null;
 let activeChannel: any = null;
+let liveTickets: any[] = [];
 const renderedMsgIds = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function statusGroup(status: string) {
-  if (['new', 'triaged', 'in_progress', 'escalated'].includes(status)) return 'open';
-  if (['waiting_client', 'waiting_internal'].includes(status))          return 'waiting';
+  if (['new', 'triaged', 'in_progress'].includes(status))                        return 'open';
+  if (['waiting_client', 'waiting_internal', 'escalated'].includes(status))      return 'waiting';
   return 'resolved';
 }
 
@@ -78,6 +79,15 @@ function slaLabel(deadline: Date) {
 
 function formatTime(date: Date) {
   return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function timeAgo(date: Date | string | null | undefined): string {
+  if (!date) return '';
+  const ms = Date.now() - new Date(date).getTime();
+  if (ms < 60000)   return 'just now';
+  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ago`;
+  if (ms < 86400000) return `${Math.floor(ms / 3600000)}h ago`;
+  return `${Math.floor(ms / 86400000)}d ago`;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,10 +168,15 @@ function renderSidebar(tickets: any[]) {
       const row = document.createElement('button');
       row.className = 'sidebar-ticket-row' + (ticket.id === activeTicketId ? ' active' : '');
       row.dataset['ticketId'] = ticket.id;
+      const truncTitle = (ticket.title ?? 'Untitled').length > 48
+        ? (ticket.title as string).slice(0, 48) + '…'
+        : (ticket.title ?? 'Untitled');
       row.innerHTML = `
-        <span class="ticket-row-id">${ticket.id}</span>
-        <span class="ticket-row-subject">${ticket.title}</span>
-        <span class="badge-pill ${statusBadgeClass(ticket.status)} ticket-row-badge">${ticket.status.replace('_', ' ')}</span>
+        <span class="ticket-row-subject">${truncTitle}</span>
+        <span class="ticket-row-meta">
+          <span class="badge-pill ${statusBadgeClass(ticket.status)} ticket-row-badge">${ticket.status.replace(/_/g, ' ')}</span>
+          <span class="ticket-row-time">${timeAgo(ticket.createdAt)}</span>
+        </span>
       `;
       row.addEventListener('click', () => loadTicket(ticket));
       container.appendChild(row);
@@ -201,13 +216,24 @@ async function subscribeTicket(ticketId: string) {
 async function loadTicket(ticket: any) {
   activeTicketId = ticket.id;
   renderedMsgIds.clear();
-  document.getElementById('activeTicketId')!.textContent    = ticket.id;
+  document.getElementById('activeTicketId')!.textContent      = ticket.id;
   document.getElementById('activeTicketSubject')!.textContent = ticket.title;
-  document.getElementById('slaBadge')!.textContent          = slaLabel(ticket.slaDeadline);
-  renderThread((IS_DEMO ? DEMO_DATA.messages[ticket.id] : null) || []);
+  document.getElementById('slaBadge')!.textContent            = slaLabel(ticket.slaDeadline);
   document.getElementById('welcomeState')!.classList.add('hidden');
   document.getElementById('threadState')!.classList.remove('hidden');
-  renderSidebar(IS_DEMO ? DEMO_DATA.tickets : []);
+  // Load messages from Supabase in live mode; fall back to demo data
+  if (IS_DEMO) {
+    renderThread(DEMO_DATA.messages[ticket.id] || []);
+  } else {
+    renderThread([]);
+    try {
+      const msgs = await getMessages(ticket.id, currentLocationId);
+      if (activeTicketId === ticket.id) renderThread(msgs);
+    } catch (e) {
+      console.warn('[loadTicket] failed to load messages:', e);
+    }
+  }
+  renderSidebar(IS_DEMO ? DEMO_DATA.tickets : liveTickets);
   await subscribeTicket(ticket.id);
 }
 
@@ -380,7 +406,9 @@ async function createTicketFromIntake() {
   }
 
   intakeMessages = []; aiResponseCount = 0; intakeTempTicketId = '';
-  renderSidebar(IS_DEMO ? DEMO_DATA.tickets : [newTicket]);
+  // Prepend new ticket to live list so it appears at the top of Open group
+  if (!IS_DEMO) liveTickets = [newTicket, ...liveTickets.filter(t => t.id !== newTicket.id)];
+  renderSidebar(IS_DEMO ? DEMO_DATA.tickets : liveTickets);
   await loadTicket(newTicket);
   document.getElementById('intakeThread')?.remove();
 }
@@ -475,8 +503,21 @@ document.getElementById('threadInput')!.addEventListener('keydown', (e: Event) =
 async function init() {
   await initAuth();
   if (IS_DEMO) {
-    renderSidebar(DEMO_DATA.tickets);
-    const first = DEMO_DATA.tickets.find((t: any) => statusGroup(t.status) === 'open');
+    liveTickets = DEMO_DATA.tickets;
+    renderSidebar(liveTickets);
+    const first = liveTickets.find((t: any) => statusGroup(t.status) === 'open');
+    if (first) await loadTicket(first);
+  } else {
+    // Load customer's real tickets from GHL
+    try {
+      liveTickets = await listTickets({ locationId: currentLocationId, contactId: currentUserId });
+      console.log('[init] loaded', liveTickets.length, 'tickets for contact:', currentUserId);
+    } catch (e) {
+      console.warn('[init] failed to load tickets:', e);
+      liveTickets = [];
+    }
+    renderSidebar(liveTickets);
+    const first = liveTickets.find((t: any) => statusGroup(t.status) === 'open');
     if (first) await loadTicket(first);
   }
 }
