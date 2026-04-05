@@ -1,5 +1,5 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
-import { sendMagicLink, signOut, subscribeToTicket, addMessage } from '../services/supabase';
+import { sendMagicLink, signOut, subscribeToTicket, addMessage, getMessages } from '../services/supabase';
 import { continueConversation, triageConversation } from '../services/legacyzero';
 import { createTicket } from '../services/ghl';
 
@@ -286,6 +286,7 @@ async function handleWelcomeSend() {
   }
   showTyping('intakeThread');
   try {
+    console.log('[intake] passing', intakeMessages.length, 'messages to continueConversation');
     const aiText = IS_DEMO ? await mockAIResponse(aiResponseCount) : await continueConversation(intakeMessages, text);
     removeTyping();
     aiResponseCount++;
@@ -342,18 +343,29 @@ async function handleThreadSend() {
   if (!text) return;
   input.value = ''; input.style.height = '';
   setSending(true);
-  const currentMessages = (IS_DEMO ? DEMO_DATA.messages[activeTicketId] : null) || [];
   const clientMsg = { id: `msg-${Date.now()}`, role: 'client', content: text, isInternal: false, createdAt: new Date() };
   appendThreadBubble('client', text, clientMsg.id);
+
+  // Build full conversation history BEFORE calling AI
+  let historyForAI: any[] = [];
   if (IS_DEMO) {
     if (!DEMO_DATA.messages[activeTicketId]) DEMO_DATA.messages[activeTicketId] = [];
     DEMO_DATA.messages[activeTicketId].push(clientMsg);
+    historyForAI = [...DEMO_DATA.messages[activeTicketId]];
   } else {
+    // Persist client message first, then load full history for context
     await addMessage(activeTicketId, 'client', text, currentLocationId, false);
+    try {
+      historyForAI = await getMessages(activeTicketId, currentLocationId);
+    } catch (e) {
+      console.warn('[thread] getMessages failed, falling back to single message:', e);
+      historyForAI = [clientMsg];
+    }
   }
+
   showTyping('messageThread');
   try {
-    const aiText = IS_DEMO ? await mockAIResponse(Math.floor(Math.random() * 2)) : await continueConversation([...currentMessages, clientMsg], text);
+    const aiText = IS_DEMO ? await mockAIResponse(Math.floor(Math.random() * 2)) : await continueConversation(historyForAI, text);
     removeTyping();
     const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
     appendThreadBubble('ai', aiText, aiMsg.id);
