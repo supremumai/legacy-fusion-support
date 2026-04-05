@@ -198,35 +198,61 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     summary?:   string;
   }>();
 
-  // Step 1 — upsert GHL contact using name + email
-  const upsertPayload = {
+  // Step 1 — search for existing contact by email
+  let contactId = '';
+  const searchParams = new URLSearchParams({
     locationId: env.GHL_LOCATION_ID,
-    name:       body.userName,
     email:      body.userEmail,
-  };
-  console.log('[createTicket] upserting contact:', JSON.stringify(upsertPayload));
-
-  const upsertRes = await fetch(`${GHL_V2_BASE}/contacts/upsert`, {
-    method:  'POST',
-    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
-    body:    JSON.stringify(upsertPayload),
   });
+  console.log('[createTicket] searching contact by email:', body.userEmail);
 
-  const upsertText = await upsertRes.text();
-  if (!upsertRes.ok) {
-    console.error('[createTicket] contact upsert failed:', upsertRes.status, upsertText.slice(0, 300));
-    return json({ error: 'GHL contact upsert failed', status: upsertRes.status, detail: upsertText }, 502, origin);
+  const searchRes  = await fetch(`${GHL_V2_BASE}/contacts/?${searchParams}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+  });
+  const searchText = await searchRes.text();
+
+  if (!searchRes.ok) {
+    console.error('[createTicket] contact search failed:', searchRes.status, searchText.slice(0, 300));
+    return json({ error: 'GHL contact search failed', status: searchRes.status, detail: searchText }, 502, origin);
   }
 
-  const upsertData = JSON.parse(upsertText) as { contact?: { id: string }; id?: string };
-  const contactId  = upsertData.contact?.id ?? upsertData.id ?? '';
-  console.log('[createTicket] upserted contact:', contactId);
+  const searchData = JSON.parse(searchText) as { contacts?: Array<{ id: string }> };
+  if (searchData.contacts && searchData.contacts.length > 0) {
+    contactId = searchData.contacts[0].id;
+    console.log('[createTicket] found existing contact:', contactId);
+  }
 
+  // Step 2 — create contact if not found
   if (!contactId) {
-    return json({ error: 'GHL contact upsert returned no ID', detail: upsertText }, 502, origin);
+    const createPayload = {
+      locationId: env.GHL_LOCATION_ID,
+      name:       body.userName,
+      email:      body.userEmail,
+    };
+    console.log('[createTicket] creating new contact:', JSON.stringify(createPayload));
+
+    const createRes  = await fetch(`${GHL_V2_BASE}/contacts/`, {
+      method:  'POST',
+      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+      body:    JSON.stringify(createPayload),
+    });
+    const createText = await createRes.text();
+
+    if (!createRes.ok) {
+      console.error('[createTicket] contact create failed:', createRes.status, createText.slice(0, 300));
+      return json({ error: 'GHL contact creation failed', status: createRes.status, detail: createText }, 502, origin);
+    }
+
+    const createData = JSON.parse(createText) as { contact?: { id: string }; id?: string };
+    contactId = createData.contact?.id ?? createData.id ?? '';
+    console.log('[createTicket] created new contact:', contactId);
+
+    if (!contactId) {
+      return json({ error: 'GHL contact creation returned no ID', detail: createText }, 502, origin);
+    }
   }
 
-  // Step 2 — create the opportunity
+  // Step 3 — create the opportunity
   const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
   const oppPayload = {
     pipelineId:      env.GHL_PIPELINE_ID,
