@@ -8,6 +8,7 @@ export interface Env {
   GHL_LOCATION_TOKEN:        string;
   GHL_LOCATION_ID:           string;
   GHL_PIPELINE_ID:           string;
+  GHL_AGENT_CONTACT_ID:      string;
   SUPPORT_CORS_ORIGIN:       string;
   GHL_WEBHOOK_SECRET:        string;
   SUPABASE_URL:              string;
@@ -297,6 +298,26 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     console.error('[createTicket] no GHL opportunity ID in response — using fallback');
     return json({ ticketId: internalId, ghlOpportunityId: internalId }, 201, origin);
   }
+
+  // Notify agent via GHL SMS (fire-and-forget — never fail the ticket creation)
+  const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
+  if (agentContactId) {
+    const notifyPayload = {
+      type:      'SMS',
+      contactId: agentContactId,
+      message:   `New support ticket: ${body.title}\nCategory: ${body.category ?? 'general'}\nPriority: ${body.priority ?? 'medium'}\nSummary: ${body.summary ?? ''}`,
+    };
+    fetch(`${GHL_V2_BASE}/conversations/messages`, {
+      method:  'POST',
+      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+      body:    JSON.stringify(notifyPayload),
+    })
+      .then(r => console.log('[notify] agent notification sent, status:', r.status))
+      .catch(e => console.error('[notify] agent notification error:', e instanceof Error ? e.message : String(e)));
+  } else {
+    console.log('[notify] GHL_AGENT_CONTACT_ID not set — skipping agent notification');
+  }
+
   return json({ ticketId: internalId, ghlOpportunityId }, 201, origin);
 }
 
