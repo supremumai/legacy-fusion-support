@@ -177,3 +177,32 @@ export async function getContact(ghlContactId: string): Promise<Contact> {
 
   return workerFetch<Contact>(`/ghl/contacts/${ghlContactId}`);
 }
+
+// ---------------------------------------------------------------------------
+// getUsers
+// ---------------------------------------------------------------------------
+export interface GHLUser { id: string; name: string; email: string; }
+
+export async function getUsers(): Promise<GHLUser[]> {
+  if (DEMO_MODE) {
+    return [
+      { id: 'user-lf', name: 'Legacy',   email: 'legacy@legacyfusion.com' },
+      { id: 'user-cs', name: 'Cesar',    email: 'cesar@legacyfusion.com'  },
+      { id: 'user-an', name: 'Antonio',  email: 'antonio@legacyfusion.com' },
+    ];
+  }
+  const data = await workerFetch<{ users: GHLUser[] }>('/ghl/users');
+  return data.users ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// assignTicket
+// ---------------------------------------------------------------------------
+export async function assignTicket(ticketId: string, assignedTo: string): Promise<void> {
+  if (DEMO_MODE) return;
+  await workerFetch<{ success: boolean }>(`/ghl/tickets/${ticketId}/assign`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignedTo }),
+  });
+}

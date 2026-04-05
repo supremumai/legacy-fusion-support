@@ -367,6 +367,50 @@ async function updateTicketStatus(
   return json({ success: true }, 200, origin);
 }
 
+// GET /ghl/users
+async function getUsers(env: Env, origin: string): Promise<Response> {
+  const res = await fetch(`${GHL_V2_BASE}/users/?locationId=${env.GHL_LOCATION_ID}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('[getUsers] GHL failed:', res.status, err.slice(0, 300));
+    return json({ error: 'Failed to fetch users', status: res.status, detail: err }, 502, origin);
+  }
+  const data = (await res.json()) as { users?: Record<string, unknown>[] };
+  const users = (data.users ?? []).map((u) => ({
+    id:    u.id    as string,
+    name:  u.name  as string,
+    email: u.email as string,
+  }));
+  return json({ users }, 200, origin);
+}
+
+// PATCH /ghl/tickets/:id/assign
+async function assignTicket(
+  ghlOpportunityId: string,
+  req: Request,
+  env: Env,
+  origin: string
+): Promise<Response> {
+  let body: { assignedTo: string };
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400, origin); }
+  if (!body.assignedTo) return json({ error: 'assignedTo is required' }, 400, origin);
+
+  const res = await fetch(`${GHL_V2_BASE}/opportunities/${ghlOpportunityId}`, {
+    method:  'PUT',
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    body:    JSON.stringify({ assignedTo: body.assignedTo }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('[assignTicket] GHL failed:', res.status, err.slice(0, 300));
+    return json({ error: 'GHL assign failed', status: res.status, detail: err }, 502, origin);
+  }
+  console.log('[assignTicket] assigned', ghlOpportunityId, '→', body.assignedTo);
+  return json({ success: true }, 200, origin);
+}
+
 // GET /ghl/tickets/:id
 async function getTicket(
   ghlOpportunityId: string,
@@ -892,6 +936,15 @@ export default {
     const contactMatch = path.match(/^\/ghl\/contacts\/([^/]+)$/);
     if (method === 'GET' && contactMatch) {
       return getContact(contactMatch[1], env, origin);
+    }
+
+    if (method === 'GET' && path === '/ghl/users') {
+      return getUsers(env, origin);
+    }
+
+    const assignMatch = path.match(/^\/ghl\/tickets\/([^/]+)\/assign$/);
+    if (method === 'PATCH' && assignMatch) {
+      return assignTicket(assignMatch[1], req, env, origin);
     }
 
     return json({ error: 'Not found' }, 404, origin);

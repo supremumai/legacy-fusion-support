@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage, getMessages } from '../services/supabase';
-import { updateTicketStatus, listTickets, getContact } from '../services/ghl';
+import { updateTicketStatus, listTickets, getContact, getUsers, assignTicket, GHLUser } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -20,6 +20,7 @@ let activeChannel: any = null;
 let activeStatusChannel: any = null;
 let currentUserId     = 'user-legacy';
 let currentLocationId = 'location-demo';
+let agentList: GHLUser[] = [];
 
 // ---------------------------------------------------------------------------
 // Demo seed data
@@ -441,7 +442,7 @@ replyInput.addEventListener('keydown', (e: Event) => {
 // ---------------------------------------------------------------------------
 // Ticket actions
 // ---------------------------------------------------------------------------
-const AGENT_OPTIONS = ['Legacy', 'Cesar', 'Antonio'];
+// agentList populated at init — see fetchAgentList()
 
 function setActionsBusy(busy: boolean) {
   ['btnAssign','btnEscalate','btnResolve','btnClose'].forEach(id => { const el = document.getElementById(id); if (el) (el as HTMLButtonElement).disabled = busy; });
@@ -470,17 +471,35 @@ document.getElementById('btnAssign')!.addEventListener('click', () => {
   const btn = document.getElementById('btnAssign')!;
   const dropdown = document.createElement('div');
   dropdown.id = 'assignDropdown'; dropdown.className = 'assign-dropdown glass-card';
-  AGENT_OPTIONS.forEach(agent => {
-    const opt = document.createElement('button'); opt.className = 'assign-option'; opt.textContent = agent;
+
+  // Use live agentList; fall back to stubs if not loaded yet
+  const options = agentList.length > 0
+    ? agentList
+    : [{ id: '', name: 'Legacy', email: '' }, { id: '', name: 'Cesar', email: '' }, { id: '', name: 'Antonio', email: '' }];
+
+  options.forEach(agent => {
+    const opt = document.createElement('button');
+    opt.className = 'assign-option';
+    opt.textContent = agent.name;
     opt.addEventListener('click', async () => {
-      dropdown.remove(); if (!activeTicketId) return;
+      dropdown.remove();
+      if (!activeTicketId) return;
       setActionsBusy(true);
       try {
-        if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'triaged');
+        if (!IS_DEMO) {
+          await assignTicket(activeTicketId, agent.id);
+          if (liveTickets.find((t: any) => t.status === 'new' && t.id === activeTicketId)) {
+            await updateTicketStatus(activeTicketId, 'triaged');
+          }
+        }
         const ticket = liveTickets.find((t: any) => t.id === activeTicketId);
-        if (ticket) { ticket.assignedTo = agent.slice(0, 2).toUpperCase(); if (ticket.status === 'new') ticket.status = 'triaged'; }
+        if (ticket) {
+          ticket.assignedTo = agent.name.slice(0, 2).toUpperCase();
+          ticket.assignedUserId = agent.id;
+          if (ticket.status === 'new') ticket.status = 'triaged';
+        }
         renderTicketList(liveTickets);
-        showToast(`Assigned to ${agent}`);
+        showToast(`Assigned to ${agent.name}`);
       } catch (err: any) { showWsError(err.message ?? 'Assign failed.'); }
       finally { setActionsBusy(false); }
     });
@@ -621,9 +640,19 @@ document.getElementById('refreshTicketsBtn')?.addEventListener('click', async ()
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
+async function fetchAgentList() {
+  try {
+    agentList = await getUsers();
+    console.log('[control] loaded', agentList.length, 'agents');
+  } catch (e) {
+    console.warn('[control] failed to load agent list:', e);
+    agentList = [];
+  }
+}
+
 async function init() {
   await initAuth();
-  await fetchLiveTickets();
+  await Promise.all([fetchLiveTickets(), fetchAgentList()]);
   startAutoRefresh();
 }
 
