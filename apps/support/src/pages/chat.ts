@@ -334,11 +334,14 @@ async function createTicketFromIntake() {
       const params = { userId: _userId, locationId: _locationId, userName: _userName, userEmail: _userEmail, title, category: triage.category, priority: triage.priority, summary: triage.problem };
       console.log('[createTicket] params:', params);
 
+      let rekeyId: string;
       try {
         newTicket = await createTicket(params);
-        console.log('[intake] GHL ticket created:', newTicket);
+        // Use the real GHL opportunity ID for message storage — never the fallback
+        rekeyId = newTicket.ghlOpportunityId ?? newTicket.id;
+        console.log('[intake] GHL ticket created, rekeying to:', rekeyId);
       } catch (ghlErr) {
-        // GHL failed — generate local fallback ticket so conversation can continue
+        // GHL failed — generate local fallback so conversation can continue
         const fallbackId = 'T-' + Date.now().toString(36).toUpperCase();
         console.warn('[createTicket] GHL failed, using fallback ID:', fallbackId, ghlErr);
         newTicket = {
@@ -348,12 +351,15 @@ async function createTicketFromIntake() {
           status: 'new', slaDeadline: new Date(Date.now() + 48 * 3600000),
           createdAt: new Date(), updatedAt: new Date(),
         };
+        rekeyId = fallbackId;
+        console.log('[createTicket] rekeying to fallback ID:', rekeyId);
       }
 
-      // Re-key intake messages to the real/fallback ticket ID — await so rekey completes before reset
-      if (intakeTempTicketId && newTicket.ghlOpportunityId) {
+      // Await rekey so messages are under the correct ID before thread mode starts
+      if (intakeTempTicketId && rekeyId) {
         try {
-          await rekeyMessages(intakeTempTicketId, newTicket.ghlOpportunityId, currentLocationId);
+          await rekeyMessages(intakeTempTicketId, rekeyId, currentLocationId);
+          console.log('[intake] rekeyMessages complete:', intakeTempTicketId, '→', rekeyId);
         } catch (e) {
           console.warn('[intake] rekeyMessages error:', e);
         }

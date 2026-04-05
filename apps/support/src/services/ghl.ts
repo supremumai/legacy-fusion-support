@@ -66,19 +66,33 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
     {
       method: 'POST',
       body: JSON.stringify({
-        userId:    params.userId,
+        userId:     params.userId,
         locationId: params.locationId,
-        userName:  params.userName,
-        userEmail: params.userEmail,
-        title:     params.title,
-        category:  params.category,
-        priority:  params.priority,
-        summary:   params.summary,
+        userName:   params.userName,
+        userEmail:  params.userEmail,
+        title:      params.title,
+        category:   params.category,
+        priority:   params.priority,
+        summary:    params.summary,
       }),
     }
   );
 
-  return getTicket(result.ghlOpportunityId);
+  // Return minimal ticket directly — avoid a second GHL fetch that could obscure the real ID
+  const ghlId = result.ghlOpportunityId ?? result.ticketId;
+  console.log('[ghl] createTicket result — ticketId:', result.ticketId, 'ghlOpportunityId:', ghlId);
+
+  return {
+    id:               result.ticketId,
+    ghlOpportunityId: ghlId,
+    title:            params.title,
+    category:         params.category,
+    priority:         params.priority,
+    status:           'new',
+    slaDeadline:      new Date(Date.now() + 48 * 3600000),
+    createdAt:        new Date(),
+    updatedAt:        new Date(),
+  } as Ticket;
 }
 
 // ---------------------------------------------------------------------------
