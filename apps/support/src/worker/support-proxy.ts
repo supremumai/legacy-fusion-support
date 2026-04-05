@@ -575,6 +575,21 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
     return json({ error: 'messages and systemPrompt are required' }, 400, origin);
   }
 
+  // Enforce clean plain-text conversation style — prepended to whatever the client sends
+  const CONVERSATION_STYLE_PREFIX = `You are LegacyZero, the AI support agent for Legacy Fusion.
+Rules:
+- Respond in plain conversational text only
+- No markdown headers (no ##, ###)
+- No bold (**text**) or italic (*text*)
+- No bullet point lists unless absolutely necessary
+- Keep responses under 3 sentences for simple questions
+- Be warm, concise, and professional
+- Do not start every message with "Hi there!" or "Hello!"
+- Vary your greetings naturally
+
+`;
+  const effectiveSystemPrompt = CONVERSATION_STYLE_PREFIX + systemPrompt;
+
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages array must be non-empty' }, 400, origin);
   }
@@ -597,7 +612,7 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
     const requestBody = {
       model:      'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system:     systemPrompt,
+      system:     effectiveSystemPrompt,
       messages:   finalMessages,
     };
 
@@ -628,11 +643,19 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
       return json({ error: 'Failed to parse Anthropic response', raw: raw.slice(0, 500) }, 502, origin);
     }
 
-    const text = data.content?.[0]?.text ?? '';
-    if (!text) {
+    const rawText = data.content?.[0]?.text ?? '';
+    if (!rawText) {
       console.warn('[ai/chat] empty content from Anthropic, content:', JSON.stringify(data.content));
       return json({ response: '', error: 'empty content from Anthropic' }, 200, origin);
     }
+
+    // Strip markdown formatting before returning to client
+    const text = rawText
+      .replace(/#{1,6}\s/g, '')            // remove headers (## Heading)
+      .replace(/\*\*(.*?)\*\*/g, '$1')     // remove bold (**text**)
+      .replace(/\*(.*?)\*/g, '$1')         // remove italic (*text*)
+      .replace(/^\s*[-•]\s/gm, '')         // remove bullet points
+      .trim();
 
     return json({ response: text }, 200, origin);
 
