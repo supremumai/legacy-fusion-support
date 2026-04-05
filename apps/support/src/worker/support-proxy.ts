@@ -265,6 +265,11 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     status:          'open',
     contactId,
     monetaryValue:   0,
+    customFields: [
+      { key: 'lf_ticket_category', field_value: body.category ?? 'general' },
+      { key: 'lf_ticket_priority', field_value: body.priority ?? 'medium' },
+      { key: 'lf_ai_summary',      field_value: body.summary  ?? '' },
+    ],
   };
 
   console.log('[createTicket] step3 opportunity payload:', JSON.stringify(oppPayload));
@@ -420,19 +425,30 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
         ?.value
       ?? null;
 
+    const priority  = (getCF('lf_ticket_priority') as TicketPriority) ?? 'medium';
+    const category  = (getCF('lf_ticket_category') as TicketCategory) ?? 'general';
+    const aiProblem = (getCF('lf_ai_summary') as string) ?? '';
+
     return {
       id:               opp.id as string,
       ghlOpportunityId: opp.id as string,
       ghlContactId:     opp.contactId as string,
       title:            (opp.name as string) ?? 'Untitled',
       status:           stageNameToStatus(stageName) ?? 'new',
-      priority:         (getCF('lf_ticket_priority') as TicketPriority) ?? 'medium',
-      category:         (getCF('lf_ticket_category') as TicketCategory) ?? 'general',
+      priority,
+      category,
       assignedTo:       (opp.assignedTo as string) ?? undefined,
       contactName:      (contact?.name as string) ?? (opp.contactName as string) ?? 'Unknown',
       slaDeadline:      null as unknown as Date,
       createdAt:        new Date(opp.createdAt as string),
       updatedAt:        new Date(opp.updatedAt as string),
+      aiSummary: {
+        problem:         aiProblem,
+        category,
+        priority,
+        suggestedAction: '',
+        generatedAt:     new Date(opp.updatedAt as string),
+      },
     } as unknown as Ticket;
   });
 

@@ -272,10 +272,30 @@ async function loadWorkspace(ticket: any) {
   document.getElementById('wsTicketId')!.textContent      = ticket.id;
   document.getElementById('wsSubject')!.textContent       = ticket.title;
   const s = ticket.aiSummary;
-  document.getElementById('aiCategory')!.textContent     = s?.category ?? '—';
-  document.getElementById('aiPriority')!.textContent     = s?.priority ?? '—';
+  document.getElementById('aiCategory')!.textContent     = s?.category ?? ticket.category ?? '—';
+  const priorityEl = document.getElementById('aiPriority')!;
+  const priorityVal = s?.priority ?? ticket.priority ?? '—';
+  priorityEl.textContent = priorityVal;
+  const PRIORITY_COLORS: Record<string, string> = {
+    urgent: '#f87171',
+    high:   '#FDA929',
+    medium: '#00e5ff',
+    low:    '#8fa4b5',
+  };
+  priorityEl.style.color = PRIORITY_COLORS[priorityVal] ?? '';
   document.getElementById('aiSLA')!.textContent          = slaLabel(ticket.slaDeadline);
-  document.getElementById('aiSummaryText')!.textContent  = s?.problem ?? 'No summary available.';
+  const summaryTextEl = document.getElementById('aiSummaryText')!;
+  summaryTextEl.textContent  = s?.problem || 'No summary available.';
+  // Suggested action — append below summary if present
+  const existingAction = document.getElementById('aiSuggestedAction');
+  if (existingAction) existingAction.remove();
+  if (s?.suggestedAction) {
+    const actionEl = document.createElement('p');
+    actionEl.id = 'aiSuggestedAction';
+    actionEl.style.cssText = 'margin-top:6px;font-size:0.8rem;color:#8fa4b5;font-style:italic;';
+    actionEl.textContent = `→ ${s.suggestedAction}`;
+    summaryTextEl.insertAdjacentElement('afterend', actionEl);
+  }
   // Seed context strip immediately with available data, then hydrate from GHL
   const c = ticket.contact;
   document.getElementById('ctxName')!.textContent        = c?.name ?? ticket.contactName ?? '—';
