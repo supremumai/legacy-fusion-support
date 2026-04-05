@@ -123,8 +123,9 @@ export async function getTicket(ghlOpportunityId: string): Promise<Ticket> {
 // listTickets
 // ---------------------------------------------------------------------------
 export interface ListTicketsFilters {
-  status?: TicketStatus;
-  limit?: number;
+  locationId?: string;
+  status?:     TicketStatus;
+  limit?:      number;
 }
 
 export async function listTickets(filters: ListTicketsFilters = {}): Promise<Ticket[]> {
@@ -140,7 +141,8 @@ export async function listTickets(filters: ListTicketsFilters = {}): Promise<Tic
   }
 
   const params = new URLSearchParams();
-  if (filters.status) params.set('status', filters.status);
+  if (filters.locationId) params.set('locationId', filters.locationId);
+  if (filters.status)     params.set('status', filters.status);
   if (filters.limit != null) params.set('limit', String(filters.limit));
 
   const query = params.toString() ? `?${params}` : '';

@@ -364,25 +364,58 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
   const limit = parseInt(url.searchParams.get('limit') ?? '50', 10);
 
   const params = new URLSearchParams({
-    locationId: env.GHL_LOCATION_ID,
-    limit:      String(Math.min(limit, 100)),
+    locationId:  env.GHL_LOCATION_ID,
+    pipelineId:  env.GHL_PIPELINE_ID,
+    limit:       String(Math.min(limit, 100)),
   });
 
   if (statusParam && STAGE_MAP[statusParam]) {
     params.set('pipelineStage', STAGE_MAP[statusParam]);
   }
 
-  const res = await fetch(`${GHL_V2_BASE}/opportunities/?${params}`, {
+  const res = await fetch(`${GHL_V2_BASE}/opportunities/search?${params}`, {
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    return json({ error: 'GHL list failed', detail: err }, 502, origin);
+    console.error('[listTickets] GHL search failed:', res.status, err.slice(0, 300));
+    return json({ error: 'GHL list failed', status: res.status, detail: err }, 502, origin);
   }
 
-  const data = (await res.json()) as { opportunities: Record<string, unknown>[] };
-  const tickets: Ticket[] = (data.opportunities ?? []).map(mapOpportunityToTicket);
+  const data = (await res.json()) as {
+    opportunities?: Record<string, unknown>[];
+    data?:          { opportunities?: Record<string, unknown>[] };
+  };
+
+  // GHL v2 /opportunities/search returns { opportunities: [...] } or nested { data: { opportunities: [...] } }
+  const opps: Record<string, unknown>[] =
+    data.opportunities ?? data.data?.opportunities ?? [];
+
+  console.log('[listTickets] GHL returned', opps.length, 'opportunities');
+
+  const tickets: Ticket[] = opps.map((opp) => {
+    const stage = (opp.pipelineStage as Record<string, unknown> | undefined);
+    const stageName = (stage?.name as string) ?? '';
+    const cfs = (opp.customFields as Array<{ id: string; fieldValue: unknown }> | undefined) ?? [];
+    const cf = (key: string) => cfs.find(f => f.id === key)?.fieldValue;
+    const contact = opp.contact as Record<string, unknown> | undefined;
+
+    return {
+      id:               opp.id as string,
+      ghlOpportunityId: opp.id as string,
+      ghlContactId:     opp.contactId as string,
+      title:            (opp.name as string) ?? 'Untitled',
+      status:           stageNameToStatus(stageName) ?? 'new',
+      priority:         (cf('lf_ticket_priority') as TicketPriority) ?? 'medium',
+      category:         (cf('lf_ticket_category') as TicketCategory) ?? 'general',
+      assignedTo:       (opp.assignedTo as string) ?? undefined,
+      contactName:      (contact?.name as string) ?? 'Unknown',
+      slaDeadline:      null as unknown as Date,
+      createdAt:        new Date(opp.createdAt as string),
+      updatedAt:        new Date(opp.updatedAt as string),
+    } as unknown as Ticket;
+  });
 
   return json(tickets, 200, origin);
 }

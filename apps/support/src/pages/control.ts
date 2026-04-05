@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage } from '../services/supabase';
-import { updateTicketStatus } from '../services/ghl';
+import { updateTicketStatus, listTickets } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -198,10 +198,10 @@ async function subscribeWorkspaceStatus(ghlOpportunityId: string) {
   if (activeStatusChannel) { try { await activeStatusChannel.unsubscribe(); } catch (_) {} activeStatusChannel = null; }
   if (IS_DEMO) return;
   activeStatusChannel = subscribeToTicketStatus(ghlOpportunityId, currentLocationId, (update: any) => {
-    const ticket = DEMO_DATA.tickets.find(t => t.ghlOpportunityId === ghlOpportunityId);
+    const ticket = liveTickets.find((t: any) => t.ghlOpportunityId === ghlOpportunityId);
     if (ticket) ticket.status = update.status;
-    renderTicketList(DEMO_DATA.tickets);
-    updateCounts(DEMO_DATA.tickets);
+    renderTicketList(liveTickets);
+    updateCounts(liveTickets);
     if (activeTicketId && ticket && ticket.id === activeTicketId) {
       flashTicketRow(activeTicketId);
       showToast(`Status updated: ${update.status.replace('_', ' ')}`);
@@ -253,7 +253,7 @@ async function loadWorkspace(ticket: any) {
   content.classList.remove('hidden');
   content.style.opacity = '0';
   requestAnimationFrame(() => { content.style.transition = 'opacity 0.2s ease'; content.style.opacity = '1'; });
-  renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+  renderTicketList(liveTickets);
   await subscribeWorkspaceTicket(ticket.id);
   await subscribeWorkspaceStatus(ticket.ghlOpportunityId);
 }
@@ -290,7 +290,7 @@ document.querySelectorAll('.queue-item').forEach(item => {
     document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
     item.classList.add('active');
     activeFilter = { type: (item as HTMLElement).dataset['filter']!, value: (item as HTMLElement).dataset['value']! };
-    renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+    renderTicketList(liveTickets);
   });
 });
 
@@ -365,12 +365,12 @@ function showToast(msg: string, color = 'cyan') {
 }
 
 function mutateTicketStatus(ticketId: string, newStatus: string) {
-  const ticket = DEMO_DATA.tickets.find(t => t.id === ticketId);
+  const ticket = liveTickets.find((t: any) => t.id === ticketId);
   if (ticket) ticket.status = newStatus;
 }
 
 function removeTicketFromList(ticketId: string) {
-  DEMO_DATA.tickets = DEMO_DATA.tickets.filter(t => t.id !== ticketId);
+  liveTickets = liveTickets.filter((t: any) => t.id !== ticketId);
 }
 
 document.getElementById('btnAssign')!.addEventListener('click', () => {
@@ -385,9 +385,9 @@ document.getElementById('btnAssign')!.addEventListener('click', () => {
       setActionsBusy(true);
       try {
         if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'triaged');
-        const ticket = DEMO_DATA.tickets.find(t => t.id === activeTicketId);
+        const ticket = liveTickets.find((t: any) => t.id === activeTicketId);
         if (ticket) { ticket.assignedTo = agent.slice(0, 2).toUpperCase(); if (ticket.status === 'new') ticket.status = 'triaged'; }
-        renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []);
+        renderTicketList(liveTickets);
         showToast(`Assigned to ${agent}`);
       } catch (err: any) { showWsError(err.message ?? 'Assign failed.'); }
       finally { setActionsBusy(false); }
@@ -404,35 +404,79 @@ document.getElementById('btnAssign')!.addEventListener('click', () => {
 
 document.getElementById('btnEscalate')!.addEventListener('click', async () => {
   if (!activeTicketId) return; setActionsBusy(true);
-  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'escalated'); mutateTicketStatus(activeTicketId, 'escalated'); renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []); updateCounts(IS_DEMO ? DEMO_DATA.tickets : []); showToast('Ticket escalated', 'gold'); }
+  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'escalated'); mutateTicketStatus(activeTicketId, 'escalated'); renderTicketList(liveTickets); updateCounts(liveTickets); showToast('Ticket escalated', 'gold'); }
   catch (err: any) { showWsError(err.message ?? 'Escalate failed.'); }
   finally { setActionsBusy(false); }
 });
 
 document.getElementById('btnResolve')!.addEventListener('click', async () => {
   if (!activeTicketId) return; setActionsBusy(true);
-  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'resolved'); mutateTicketStatus(activeTicketId, 'resolved'); renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []); updateCounts(IS_DEMO ? DEMO_DATA.tickets : []); showToast('Ticket resolved ✓'); }
+  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'resolved'); mutateTicketStatus(activeTicketId, 'resolved'); renderTicketList(liveTickets); updateCounts(liveTickets); showToast('Ticket resolved ✓'); }
   catch (err: any) { showWsError(err.message ?? 'Resolve failed.'); }
   finally { setActionsBusy(false); }
 });
 
 document.getElementById('btnClose')!.addEventListener('click', async () => {
   if (!activeTicketId) return; setActionsBusy(true);
-  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'closed'); removeTicketFromList(activeTicketId); renderTicketList(IS_DEMO ? DEMO_DATA.tickets : []); updateCounts(IS_DEMO ? DEMO_DATA.tickets : []); showWorkspaceEmpty(); }
+  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'closed'); removeTicketFromList(activeTicketId); renderTicketList(liveTickets); updateCounts(liveTickets); showWorkspaceEmpty(); }
   catch (err: any) { showWsError(err.message ?? 'Close failed.'); setActionsBusy(false); }
 });
+
+// ---------------------------------------------------------------------------
+// Live ticket loader
+// ---------------------------------------------------------------------------
+let liveTickets: any[] = [];
+
+function showTicketListLoading() {
+  const list = document.getElementById('ticketList')!;
+  list.innerHTML = '<div class="ticket-list-empty" style="padding:16px;opacity:0.6;">Loading tickets…</div>';
+}
+
+function showTicketListError(onRetry: () => void) {
+  const list = document.getElementById('ticketList')!;
+  list.innerHTML = '';
+  const msg = document.createElement('div');
+  msg.className = 'ticket-list-empty';
+  msg.style.cssText = 'padding:16px;display:flex;flex-direction:column;gap:8px;align-items:flex-start;';
+  msg.innerHTML = '<span style="opacity:0.7;">Could not load tickets.</span>';
+  const btn = document.createElement('button');
+  btn.className = 'ws-btn';
+  btn.textContent = 'Retry';
+  btn.addEventListener('click', onRetry);
+  msg.appendChild(btn);
+  list.appendChild(msg);
+}
+
+async function fetchLiveTickets() {
+  if (IS_DEMO) {
+    liveTickets = DEMO_DATA.tickets;
+    updateCounts(liveTickets);
+    renderTicketList(liveTickets);
+    const first = liveTickets.find((t: any) => t.priority === 'urgent') ?? liveTickets[0];
+    if (first) await loadWorkspace(first);
+    return;
+  }
+
+  showTicketListLoading();
+  try {
+    const tickets = await listTickets({ locationId: currentLocationId, limit: 50 });
+    liveTickets = tickets;
+    updateCounts(liveTickets);
+    renderTicketList(liveTickets);
+    const first = liveTickets.find((t: any) => t.priority === 'urgent') ?? liveTickets[0];
+    if (first) await loadWorkspace(first);
+  } catch (err) {
+    console.error('[control] fetchLiveTickets error:', err);
+    showTicketListError(fetchLiveTickets);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
   await initAuth();
-  if (IS_DEMO) {
-    updateCounts(DEMO_DATA.tickets);
-    renderTicketList(DEMO_DATA.tickets);
-    const first = DEMO_DATA.tickets.find((t: any) => t.priority === 'urgent');
-    if (first) await loadWorkspace(first);
-  }
+  await fetchLiveTickets();
 }
 
 init();
