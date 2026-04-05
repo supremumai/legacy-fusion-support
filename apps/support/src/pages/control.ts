@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage } from '../services/supabase';
-import { updateTicketStatus, listTickets } from '../services/ghl';
+import { updateTicketStatus, listTickets, getContact } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -14,7 +14,7 @@ let IS_DEMO = _userId === 'user-legacy' || _locationId === 'location-demo';
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let activeFilter: { type: string; value: string } = { type: 'priority', value: 'urgent' };
+let activeFilter: { type: string; value: string } = { type: 'unassigned', value: 'unassigned' };
 let activeTicketId: string | null = null;
 let activeChannel: any = null;
 let activeStatusChannel: any = null;
@@ -177,9 +177,11 @@ function updateCounts(tickets: any[]) {
 function filterTickets(tickets: any[]) {
   if (!activeFilter) return tickets;
   return tickets.filter(t => {
-    if (activeFilter.type === 'priority') return t.priority === activeFilter.value;
-    if (activeFilter.type === 'category') return t.category === activeFilter.value;
-    if (activeFilter.type === 'status') return activeFilter.value === 'waiting' ? statusIsWaiting(t.status) : t.status === activeFilter.value;
+    if (activeFilter.type === 'all')        return true;
+    if (activeFilter.type === 'unassigned') return !t.assignedTo;
+    if (activeFilter.type === 'priority')   return t.priority === activeFilter.value;
+    if (activeFilter.type === 'category')   return t.category === activeFilter.value;
+    if (activeFilter.type === 'status')     return activeFilter.value === 'waiting' ? statusIsWaiting(t.status) : t.status === activeFilter.value;
     return true;
   });
 }
@@ -194,16 +196,20 @@ function renderTicketList(tickets: any[]) {
     row.className = 'ticket-row' + (ticket.id === activeTicketId ? ' active' : '');
     row.dataset['ticketId'] = ticket.id;
     const urgent = slaIsUrgent(ticket.slaDeadline);
+    const displayName  = ticket.contactName ?? ticket.contact?.name ?? 'Unknown';
+    const priority     = ticket.priority ?? 'medium';
+    const category     = ticket.category ?? 'general';
+    const priorityColor = PRIORITY_COLORS[priority] ?? '#8fa4b5';
     row.innerHTML = `
       <div class="ticket-row-top">
-        <span class="priority-dot" style="background:${PRIORITY_COLORS[ticket.priority] || '#8fa4b5'}"></span>
-        <span class="ticket-row-contact">${ticket.contact?.name ?? 'Unknown'}</span>
+        <span class="priority-dot" style="background:${priorityColor}"></span>
+        <span class="ticket-row-contact">${displayName}</span>
         ${ticket.assignedTo ? `<span class="agent-avatar">${ticket.assignedTo}</span>` : '<span class="agent-avatar unassigned">—</span>'}
       </div>
       <div class="ticket-row-snippet">${ticket.title}</div>
       <div class="ticket-row-bottom">
-        <span class="badge-pill badge-cyan ticket-cat-badge">${ticket.category}</span>
-        <span class="sla-timer ${urgent ? 'sla-urgent' : ''}">${slaLabel(ticket.slaDeadline)}</span>
+        <span class="badge-pill badge-cyan ticket-cat-badge">${category}</span>
+        <span class="sla-timer ${urgent ? 'sla-urgent' : ''}">${ticket.slaDeadline ? slaLabel(ticket.slaDeadline) : '—'}</span>
       </div>
     `;
     row.addEventListener('click', () => loadWorkspace(ticket));
@@ -270,13 +276,25 @@ async function loadWorkspace(ticket: any) {
   document.getElementById('aiPriority')!.textContent     = s?.priority ?? '—';
   document.getElementById('aiSLA')!.textContent          = slaLabel(ticket.slaDeadline);
   document.getElementById('aiSummaryText')!.textContent  = s?.problem ?? 'No summary available.';
+  // Seed context strip immediately with available data, then hydrate from GHL
   const c = ticket.contact;
-  document.getElementById('ctxName')!.textContent        = c?.name ?? '—';
+  document.getElementById('ctxName')!.textContent        = c?.name ?? ticket.contactName ?? '—';
   document.getElementById('ctxPlanBadge')!.textContent   = c?.plan ?? '—';
-  document.getElementById('ctxMRR')!.textContent         = formatMRR(c?.mrr);
+  document.getElementById('ctxMRR')!.textContent         = formatMRR(c?.mrr ?? null);
   document.getElementById('ctxSince')!.textContent       = c?.memberSince ? formatDate(c.memberSince) : '—';
   document.getElementById('ctxPastTickets')!.textContent = String(c?.pastTickets ?? 0);
-  (document.getElementById('ctxGHLLink') as HTMLAnchorElement).href = c?.ghlId ? `https://app.gohighlevel.com/contacts/${c.ghlId}` : '#';
+  const ghlId = c?.ghlId ?? ticket.ghlContactId;
+  (document.getElementById('ctxGHLLink') as HTMLAnchorElement).href = ghlId ? `https://app.gohighlevel.com/contacts/${ghlId}` : '#';
+
+  // Async hydrate contact from GHL if we have a real contact ID and not in demo
+  if (!IS_DEMO && ticket.ghlContactId) {
+    getContact(ticket.ghlContactId).then(contact => {
+      if (activeTicketId !== ticket.id) return; // ticket changed while fetching
+      document.getElementById('ctxName')!.textContent = contact.name ?? '—';
+      (document.getElementById('ctxGHLLink') as HTMLAnchorElement).href =
+        `https://app.gohighlevel.com/contacts/${contact.ghlContactId}`;
+    }).catch(err => console.warn('[loadWorkspace] contact fetch failed:', err));
+  }
   renderWsThread((IS_DEMO ? DEMO_DATA.messages[ticket.id] : null) || []);
   document.getElementById('workspaceEmpty')!.classList.add('hidden');
   const content = document.getElementById('workspaceContent')!;
@@ -482,7 +500,7 @@ async function fetchLiveTickets() {
     liveTickets = DEMO_DATA.tickets;
     updateCounts(liveTickets);
     renderTicketList(liveTickets);
-    const first = liveTickets.find((t: any) => t.priority === 'urgent') ?? liveTickets[0];
+    const first = liveTickets.find((t: any) => !t.assignedTo) ?? liveTickets[0];
     if (first) await loadWorkspace(first);
     return;
   }
@@ -492,8 +510,12 @@ async function fetchLiveTickets() {
     const tickets = await listTickets({ locationId: currentLocationId, limit: 50 });
     liveTickets = tickets;
     updateCounts(liveTickets);
+    // Activate unassigned filter in the queue UI
+    document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
+    document.querySelector('.queue-item[data-filter="unassigned"]')?.classList.add('active');
     renderTicketList(liveTickets);
-    const first = liveTickets.find((t: any) => t.priority === 'urgent') ?? liveTickets[0];
+    // Open first unassigned ticket, fallback to first ticket overall
+    const first = liveTickets.find((t: any) => !t.assignedTo) ?? liveTickets[0];
     if (first) await loadWorkspace(first);
   } catch (err) {
     console.error('[control] fetchLiveTickets error:', err);

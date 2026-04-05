@@ -395,11 +395,20 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
   console.log('[listTickets] GHL returned', opps.length, 'opportunities');
 
   const tickets: Ticket[] = opps.map((opp) => {
-    const stage = (opp.pipelineStage as Record<string, unknown> | undefined);
+    const stage     = (opp.pipelineStage as Record<string, unknown> | undefined);
     const stageName = (stage?.name as string) ?? '';
-    const cfs = (opp.customFields as Array<{ id: string; fieldValue: unknown }> | undefined) ?? [];
-    const cf = (key: string) => cfs.find(f => f.id === key)?.fieldValue;
-    const contact = opp.contact as Record<string, unknown> | undefined;
+    const contact   = opp.contact as Record<string, unknown> | undefined;
+
+    // Custom field lookup — GHL returns different shapes depending on field type:
+    // { id, fieldValue } or { key, fieldValue } or { fieldKey, value }
+    type CfEntry = { id?: string; key?: string; fieldKey?: string; fieldValue?: unknown; value?: unknown };
+    const cfs = (opp.customFields as CfEntry[] | undefined) ?? [];
+    const getCF = (fieldKey: string): unknown =>
+      cfs.find(f => f.id === fieldKey || f.key === fieldKey || f.fieldKey === fieldKey)
+        ?.fieldValue
+      ?? cfs.find(f => f.id === fieldKey || f.key === fieldKey || f.fieldKey === fieldKey)
+        ?.value
+      ?? null;
 
     return {
       id:               opp.id as string,
@@ -407,10 +416,10 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
       ghlContactId:     opp.contactId as string,
       title:            (opp.name as string) ?? 'Untitled',
       status:           stageNameToStatus(stageName) ?? 'new',
-      priority:         (cf('lf_ticket_priority') as TicketPriority) ?? 'medium',
-      category:         (cf('lf_ticket_category') as TicketCategory) ?? 'general',
+      priority:         (getCF('lf_ticket_priority') as TicketPriority) ?? 'medium',
+      category:         (getCF('lf_ticket_category') as TicketCategory) ?? 'general',
       assignedTo:       (opp.assignedTo as string) ?? undefined,
-      contactName:      (contact?.name as string) ?? 'Unknown',
+      contactName:      (contact?.name as string) ?? (opp.contactName as string) ?? 'Unknown',
       slaDeadline:      null as unknown as Date,
       createdAt:        new Date(opp.createdAt as string),
       updatedAt:        new Date(opp.updatedAt as string),
