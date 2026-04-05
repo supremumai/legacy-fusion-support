@@ -364,13 +364,13 @@ async function listTickets(url: URL, env: Env, origin: string): Promise<Response
   const limit = parseInt(url.searchParams.get('limit') ?? '50', 10);
 
   const params = new URLSearchParams({
-    locationId:  env.GHL_LOCATION_ID,
-    pipelineId:  env.GHL_PIPELINE_ID,
-    limit:       String(Math.min(limit, 100)),
+    location_id:  env.GHL_LOCATION_ID,
+    pipeline_id:  env.GHL_PIPELINE_ID,
+    limit:        String(Math.min(limit, 100)),
   });
 
   if (statusParam && STAGE_MAP[statusParam]) {
-    params.set('pipelineStage', STAGE_MAP[statusParam]);
+    params.set('pipeline_stage_id', STAGE_MAP[statusParam]);
   }
 
   const res = await fetch(`${GHL_V2_BASE}/opportunities/search?${params}`, {
