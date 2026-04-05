@@ -356,14 +356,19 @@ async function createTicketFromIntake() {
       }
 
       // Await rekey so messages are under the correct ID before thread mode starts
-      if (intakeTempTicketId && rekeyId) {
+      const realId = newTicket.ghlOpportunityId as string;
+      if (intakeTempTicketId && realId) {
         try {
-          await rekeyMessages(intakeTempTicketId, rekeyId, currentLocationId);
-          console.log('[intake] rekeyMessages complete:', intakeTempTicketId, '→', rekeyId);
+          await rekeyMessages(intakeTempTicketId, realId, currentLocationId);
+          console.log('[intake] rekeyMessages complete:', intakeTempTicketId, '→', realId);
         } catch (e) {
           console.warn('[intake] rekeyMessages error:', e);
         }
       }
+      // Ensure thread sends use the real GHL opportunity ID, not the internal fallback
+      newTicket.id = realId;
+      activeTicketId = realId;
+      console.log('[intake] currentTicketId set to:', activeTicketId);
     }
 
     console.log('[intake] ticket resolved:', newTicket.id);
