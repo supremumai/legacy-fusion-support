@@ -202,9 +202,9 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
   let contactId = '';
   const searchParams = new URLSearchParams({
     locationId: env.GHL_LOCATION_ID,
-    email:      body.userEmail,
+    query:      body.userEmail,
   });
-  console.log('[createTicket] searching contact by email:', body.userEmail);
+  console.log('[createTicket] searching contact by query:', body.userEmail);
 
   const searchRes  = await fetch(`${GHL_V2_BASE}/contacts/?${searchParams}`, {
     headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
