@@ -283,9 +283,16 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     return json({ error: 'GHL opportunity creation failed', status: oppRes.status, detail: oppText }, 502, origin);
   }
 
-  const opp = JSON.parse(oppText) as Record<string, unknown>;
-  console.log('[createTicket] opportunity created:', opp.id);
-  return json({ ticketId: internalId, ghlOpportunityId: opp.id }, 201, origin);
+  const oppData = JSON.parse(oppText) as Record<string, unknown>;
+  console.log('[createTicket] opp response:', JSON.stringify(oppData).slice(0, 300));
+  const oppInner = (oppData.opportunity ?? oppData) as Record<string, unknown>;
+  const ghlOpportunityId = (oppInner?.id ?? null) as string | null;
+  console.log('[createTicket] real GHL opp ID:', ghlOpportunityId);
+  if (!ghlOpportunityId) {
+    console.error('[createTicket] no GHL opportunity ID in response — using fallback');
+    return json({ ticketId: internalId, ghlOpportunityId: internalId }, 201, origin);
+  }
+  return json({ ticketId: internalId, ghlOpportunityId }, 201, origin);
 }
 
 // PATCH /ghl/tickets/:id/status
