@@ -515,21 +515,37 @@ document.getElementById('btnAssign')!.addEventListener('click', () => {
 
 document.getElementById('btnEscalate')!.addEventListener('click', async () => {
   if (!activeTicketId) return; setActionsBusy(true);
-  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'escalated'); mutateTicketStatus(activeTicketId, 'escalated'); renderTicketList(liveTickets); updateCounts(liveTickets); showToast('Ticket escalated', 'gold'); }
+  try {
+    if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'escalated');
+    mutateTicketStatus(activeTicketId, 'escalated');
+    renderTicketList(liveTickets); updateCounts(liveTickets);
+    showToast('Escalated → GHL synced', 'gold');
+  }
   catch (err: any) { showWsError(err.message ?? 'Escalate failed.'); }
   finally { setActionsBusy(false); }
 });
 
 document.getElementById('btnResolve')!.addEventListener('click', async () => {
   if (!activeTicketId) return; setActionsBusy(true);
-  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'resolved'); mutateTicketStatus(activeTicketId, 'resolved'); renderTicketList(liveTickets); updateCounts(liveTickets); showToast('Ticket resolved ✓'); }
+  try {
+    if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'resolved');
+    mutateTicketStatus(activeTicketId, 'resolved');
+    renderTicketList(liveTickets); updateCounts(liveTickets);
+    showToast('Resolved ✓ — GHL marked Won');
+  }
   catch (err: any) { showWsError(err.message ?? 'Resolve failed.'); }
   finally { setActionsBusy(false); }
 });
 
 document.getElementById('btnClose')!.addEventListener('click', async () => {
   if (!activeTicketId) return; setActionsBusy(true);
-  try { if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'closed'); removeTicketFromList(activeTicketId); renderTicketList(liveTickets); updateCounts(liveTickets); showWorkspaceEmpty(); }
+  try {
+    if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'closed');
+    removeTicketFromList(activeTicketId);
+    renderTicketList(liveTickets); updateCounts(liveTickets);
+    showToast('Closed — GHL marked Lost', 'gold');
+    showWorkspaceEmpty();
+  }
   catch (err: any) { showWsError(err.message ?? 'Close failed.'); setActionsBusy(false); }
 });
 

@@ -349,8 +349,13 @@ async function updateTicketStatus(
     return json({ error: 'Failed to resolve pipeline stage', detail: msg }, 502, origin);
   }
 
+  // Map ticket status to GHL opportunity status
+  const ghlStatus = body.status === 'resolved' ? 'won'
+                  : body.status === 'closed'   ? 'lost'
+                  : 'open';
+
   // GHL v2: PUT /opportunities/:id
-  const updatePayload = { pipelineStageId: stageId, status: 'open' };
+  const updatePayload = { pipelineStageId: stageId, status: ghlStatus };
   console.log('[updateTicketStatus] GHL v2 request body:', JSON.stringify(updatePayload));
 
   const res = await fetch(`${GHL_V2_BASE}/opportunities/${ghlOpportunityId}`, {
