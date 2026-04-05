@@ -206,3 +206,28 @@ export async function assignTicket(ticketId: string, assignedTo: string): Promis
     body: JSON.stringify({ assignedTo }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// saveKnowledgeBase
+// ---------------------------------------------------------------------------
+export interface KBEntry {
+  ticketId:   string;
+  locationId: string;
+  problem:    string;
+  solution:   string;
+  category:   string;
+  tags?:      string[];
+  createdBy?: string;
+}
+
+export async function saveKnowledgeBase(entry: KBEntry): Promise<void> {
+  if (DEMO_MODE) {
+    console.log('[demo] KB entry saved (demo):', entry);
+    return;
+  }
+  await workerFetch<{ success: boolean }>('/kb/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  });
+}

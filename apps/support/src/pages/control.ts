@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage, getMessages } from '../services/supabase';
-import { updateTicketStatus, listTickets, getContact, getUsers, assignTicket, GHLUser } from '../services/ghl';
+import { updateTicketStatus, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -407,6 +407,55 @@ function showWsError(msg: string) {
   setTimeout(() => el?.classList.add('hidden'), 4000);
 }
 
+function showKBPrompt(ticket: any) {
+  document.getElementById('kbPrompt')?.remove();
+  const prompt = document.createElement('div');
+  prompt.id = 'kbPrompt';
+  prompt.className = 'kb-prompt glass-card';
+  const problem  = ticket.aiSummary?.problem  ?? ticket.title ?? '';
+  const category = ticket.aiSummary?.category ?? ticket.category ?? 'general';
+  prompt.innerHTML = `
+    <p class="kb-prompt-title">💡 Save this resolution to the knowledge base?</p>
+    <label class="kb-label">Problem</label>
+    <textarea id="kbProblem" class="kb-textarea" rows="2">${problem}</textarea>
+    <label class="kb-label">Solution</label>
+    <textarea id="kbSolution" class="kb-textarea" rows="3" placeholder="Describe what resolved this ticket..."></textarea>
+    <label class="kb-label">Tags <span class="kb-optional">(optional, comma-separated)</span></label>
+    <input id="kbTags" class="kb-input" type="text" placeholder="e.g. automation, webhook">
+    <div class="kb-actions">
+      <button id="kbSaveBtn" class="btn-gold kb-save-btn">Save to KB</button>
+      <button id="kbSkipBtn" class="kb-skip-btn">Skip</button>
+    </div>
+  `;
+  document.querySelector('.workspace-panel')?.appendChild(prompt);
+
+  document.getElementById('kbSkipBtn')!.addEventListener('click', () => prompt.remove());
+  document.getElementById('kbSaveBtn')!.addEventListener('click', async () => {
+    const problemVal  = (document.getElementById('kbProblem')  as HTMLTextAreaElement).value.trim();
+    const solutionVal = (document.getElementById('kbSolution') as HTMLTextAreaElement).value.trim();
+    const tagsVal     = (document.getElementById('kbTags')     as HTMLInputElement).value.trim();
+    if (!solutionVal) { showWsError('Please enter the solution before saving.'); return; }
+    const tags = tagsVal ? tagsVal.split(',').map(t => t.trim()).filter(Boolean) : [];
+    (document.getElementById('kbSaveBtn') as HTMLButtonElement).disabled = true;
+    try {
+      await saveKnowledgeBase({
+        ticketId:   ticket.id,
+        locationId: currentLocationId,
+        problem:    problemVal,
+        solution:   solutionVal,
+        category,
+        tags,
+        createdBy:  currentUserId,
+      });
+      prompt.remove();
+      showToast('Saved to knowledge base ✓');
+    } catch (e: any) {
+      showWsError(e.message ?? 'KB save failed.');
+      (document.getElementById('kbSaveBtn') as HTMLButtonElement).disabled = false;
+    }
+  });
+}
+
 async function handleSendReply() {
   if (!activeTicketId) return;
   const text = replyInput.value.trim(); if (!text) return;
@@ -527,11 +576,15 @@ document.getElementById('btnEscalate')!.addEventListener('click', async () => {
 
 document.getElementById('btnResolve')!.addEventListener('click', async () => {
   if (!activeTicketId) return; setActionsBusy(true);
+  const resolvedTicketId = activeTicketId;
   try {
-    if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'resolved');
-    mutateTicketStatus(activeTicketId, 'resolved');
+    if (!IS_DEMO) await updateTicketStatus(resolvedTicketId, 'resolved');
+    mutateTicketStatus(resolvedTicketId, 'resolved');
     renderTicketList(liveTickets); updateCounts(liveTickets);
     showToast('Resolved ✓ — GHL marked Won');
+    // Show KB capture prompt with ticket context
+    const ticket = liveTickets.find((t: any) => t.id === resolvedTicketId);
+    if (ticket) showKBPrompt(ticket);
   }
   catch (err: any) { showWsError(err.message ?? 'Resolve failed.'); }
   finally { setActionsBusy(false); }

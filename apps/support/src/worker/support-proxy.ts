@@ -416,6 +416,45 @@ async function assignTicket(
   return json({ success: true }, 200, origin);
 }
 
+// POST /kb/save
+async function saveKnowledgeBase(req: Request, env: Env, origin: string): Promise<Response> {
+  let body: {
+    ticketId:   string;
+    locationId: string;
+    problem:    string;
+    solution:   string;
+    category:   string;
+    tags?:      string[];
+    createdBy?: string;
+  };
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400, origin); }
+
+  const { ticketId, locationId, problem, solution, category, tags = [], createdBy = '' } = body;
+  if (!ticketId || !locationId || !problem || !solution || !category) {
+    return json({ error: 'ticketId, locationId, problem, solution, category are required' }, 400, origin);
+  }
+
+  const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/knowledge_base`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'return=minimal',
+    },
+    body: JSON.stringify({ ticket_id: ticketId, location_id: locationId, problem, solution, category, tags, created_by: createdBy }),
+  });
+
+  if (!insertRes.ok) {
+    const err = await insertRes.text();
+    console.error('[kb/save] Supabase insert failed:', insertRes.status, err.slice(0, 300));
+    return json({ error: 'KB insert failed', status: insertRes.status, detail: err }, 502, origin);
+  }
+
+  console.log('[kb/save] saved KB entry for ticket:', ticketId);
+  return json({ success: true }, 201, origin);
+}
+
 // GET /ghl/tickets/:id
 async function getTicket(
   ghlOpportunityId: string,
@@ -950,6 +989,10 @@ export default {
     const assignMatch = path.match(/^\/ghl\/tickets\/([^/]+)\/assign$/);
     if (method === 'PATCH' && assignMatch) {
       return assignTicket(assignMatch[1], req, env, origin);
+    }
+
+    if (method === 'POST' && path === '/kb/save') {
+      return saveKnowledgeBase(req, env, origin);
     }
 
     return json({ error: 'Not found' }, 404, origin);
