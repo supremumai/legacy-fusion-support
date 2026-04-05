@@ -1,5 +1,5 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
-import { sendMagicLink, signOut, subscribeToTicket, addMessage, getMessages } from '../services/supabase';
+import { sendMagicLink, signOut, subscribeToTicket, addMessage, getMessages, rekeyMessages } from '../services/supabase';
 import { continueConversation, triageConversation } from '../services/legacyzero';
 import { createTicket } from '../services/ghl';
 
@@ -326,6 +326,11 @@ async function createTicketFromIntake() {
       newTicket = await createTicket({ userId: _userId, locationId: _locationId, userName: _userName, userEmail: _userEmail, title, category: triage.category, priority: triage.priority, summary: triage.problem });
     }
     console.log('[intake] ticket created:', newTicket);
+    // Re-key intake messages from temp ID → real GHL opportunity ID
+    if (!IS_DEMO && intakeTempTicketId && newTicket.ghlOpportunityId) {
+      rekeyMessages(intakeTempTicketId, newTicket.ghlOpportunityId, currentLocationId)
+        .catch(e => console.warn('[intake] rekeyMessages error:', e));
+    }
   } catch (err) {
     console.error('[intake] error:', err);
     throw err;

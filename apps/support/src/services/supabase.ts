@@ -281,6 +281,32 @@ export async function addMessage(
 }
 
 // ---------------------------------------------------------------------------
+// rekeyMessages: update ticket_id on all messages stored under an intake temp ID
+// Called after ticket creation to link intake messages to the real opportunity ID
+// ---------------------------------------------------------------------------
+export async function rekeyMessages(
+  oldTicketId: string,
+  newTicketId: string,
+  locationId:  string
+): Promise<void> {
+  if (!oldTicketId || !newTicketId || oldTicketId === newTicketId) return;
+  if (locationId === 'location-demo') return;
+
+  await setLocationContext(locationId);
+
+  const { error } = await supabase
+    .from('support_messages')
+    .update({ ticket_id: newTicketId })
+    .eq('ticket_id', oldTicketId);
+
+  if (error) {
+    console.warn('[supabase] rekeyMessages failed:', error.message);
+  } else {
+    console.log('[supabase] rekeyMessages:', oldTicketId, '→', newTicketId);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // subscribeToTicketStatus
 // Listens for UPDATE events on support_tickets for a given ghl_opportunity_id.
 // Used by control.html to sync stage changes pushed by the GHL webhook receiver.

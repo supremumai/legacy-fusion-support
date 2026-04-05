@@ -1,5 +1,5 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
-import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage } from '../services/supabase';
+import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage, getMessages } from '../services/supabase';
 import { updateTicketStatus, listTickets, getContact } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
@@ -295,13 +295,37 @@ async function loadWorkspace(ticket: any) {
         `https://app.gohighlevel.com/contacts/${contact.ghlContactId}`;
     }).catch(err => console.warn('[loadWorkspace] contact fetch failed:', err));
   }
-  renderWsThread((IS_DEMO ? DEMO_DATA.messages[ticket.id] : null) || []);
+  // Show workspace content immediately
   document.getElementById('workspaceEmpty')!.classList.add('hidden');
   const content = document.getElementById('workspaceContent')!;
   content.classList.remove('hidden');
   content.style.opacity = '0';
   requestAnimationFrame(() => { content.style.transition = 'opacity 0.2s ease'; content.style.opacity = '1'; });
   renderTicketList(liveTickets);
+
+  // Load thread messages
+  if (IS_DEMO) {
+    renderWsThread(DEMO_DATA.messages[ticket.id] ?? []);
+  } else {
+    // Show loading state while fetching
+    const thread = document.getElementById('wsThread')!;
+    thread.innerHTML = '<div style="padding:16px;opacity:0.6;text-align:center;">Loading conversation…</div>';
+    try {
+      // Tickets created via chat flow: messages stored under ghlOpportunityId
+      const msgs = await getMessages(ticket.ghlOpportunityId ?? ticket.id, currentLocationId);
+      if (activeTicketId !== ticket.id) return; // ticket changed while fetching
+      if (msgs.length === 0) {
+        thread.innerHTML = '<div style="padding:16px;opacity:0.5;text-align:center;">No messages yet for this ticket.</div>';
+      } else {
+        renderWsThread(msgs);
+      }
+    } catch (err) {
+      console.error('[loadWorkspace] getMessages failed:', err);
+      if (activeTicketId !== ticket.id) return;
+      thread.innerHTML = '<div style="padding:16px;opacity:0.5;text-align:center;">Could not load messages.</div>';
+    }
+  }
+
   await subscribeWorkspaceTicket(ticket.id);
   await subscribeWorkspaceStatus(ticket.ghlOpportunityId);
 }
@@ -512,7 +536,7 @@ async function fetchLiveTickets() {
     updateCounts(liveTickets);
     // Activate unassigned filter in the queue UI
     document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
-    document.querySelector('.queue-item[data-filter="unassigned"]')?.classList.add('active');
+    document.querySelector('.queue-item[data-filter="unassigned"][data-value="unassigned"]')?.classList.add('active');
     renderTicketList(liveTickets);
     // Open first unassigned ticket, fallback to first ticket overall
     const first = liveTickets.find((t: any) => !t.assignedTo) ?? liveTickets[0];
