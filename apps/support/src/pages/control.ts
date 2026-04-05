@@ -548,11 +548,63 @@ async function fetchLiveTickets() {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-refresh + manual refresh
+// ---------------------------------------------------------------------------
+let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+async function silentRefresh() {
+  if (IS_DEMO) return;
+  try {
+    const fresh = await listTickets({ locationId: currentLocationId, limit: 50 });
+    const prevIds = new Set(liveTickets.map((t: any) => t.id));
+    const newIds   = new Set(fresh.map((t: any) => t.id));
+
+    // Find tickets that are truly new
+    const addedIds = [...newIds].filter(id => !prevIds.has(id));
+
+    if (fresh.length !== liveTickets.length || addedIds.length > 0) {
+      liveTickets = fresh;
+      updateCounts(liveTickets);
+      renderTicketList(liveTickets);
+
+      // Flash new ticket rows
+      addedIds.forEach(id => {
+        const row = document.querySelector(`.ticket-row[data-ticket-id="${id}"]`);
+        if (row) {
+          row.classList.add('flash-cyan');
+          setTimeout(() => row.classList.remove('flash-cyan'), 1500);
+        }
+      });
+
+      if (addedIds.length > 0) {
+        console.log('[control] silentRefresh: new tickets detected:', addedIds);
+      }
+    }
+  } catch (err) {
+    console.warn('[control] silentRefresh error:', err);
+  }
+}
+
+function startAutoRefresh() {
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(silentRefresh, 30000);
+}
+
+// Manual refresh button
+document.getElementById('refreshTicketsBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('refreshTicketsBtn')!;
+  btn.classList.add('spinning');
+  await fetchLiveTickets();
+  setTimeout(() => btn.classList.remove('spinning'), 400);
+});
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
   await initAuth();
   await fetchLiveTickets();
+  startAutoRefresh();
 }
 
 init();

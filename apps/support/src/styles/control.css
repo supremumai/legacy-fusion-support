@@ -159,6 +159,22 @@
   gap: 8px;
 }
 
+.refresh-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cyan);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: opacity 0.15s, transform 0.3s;
+  opacity: 0.7;
+}
+.refresh-btn:hover { opacity: 1; }
+.refresh-btn.spinning { animation: spin360 0.4s linear; }
+@keyframes spin360 { to { transform: rotate(360deg); } }
+
 .ticket-list-title {
   font-family: var(--font-ui);
   font-weight: 700;
