@@ -158,6 +158,35 @@ export async function fetchTicketStages(
 }
 
 // ---------------------------------------------------------------------------
+// fetchSupabaseTicket — returns support_tickets row for a given ghl_opportunity_id
+// Used to hydrate AI Analysis fields (summary, sla_deadline, priority, category).
+// ---------------------------------------------------------------------------
+export interface SupabaseTicketRow {
+  status:       string;
+  summary:      string | null;
+  sla_deadline: string | null;
+  priority:     string;
+  category:     string;
+  contact_name: string | null;
+}
+
+export async function fetchSupabaseTicket(
+  ghlOpportunityId: string
+): Promise<SupabaseTicketRow | null> {
+  if (DEMO_MODE) return null;
+  try {
+    const res = await fetch(
+      `${WORKER_URL}/support/tickets/${encodeURIComponent(ghlOpportunityId)}`,
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+    if (!res.ok) return null;
+    return await res.json() as SupabaseTicketRow;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // getTicket
 // ---------------------------------------------------------------------------
 export async function getTicket(ghlOpportunityId: string): Promise<Ticket> {

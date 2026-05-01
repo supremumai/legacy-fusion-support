@@ -319,6 +319,11 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
   }
 
   // Insert to support_tickets in Supabase — awaited for error visibility, non-fatal
+  const SLA_HOURS: Record<string, number> = { urgent: 2, high: 4, medium: 24, low: 72 };
+  const slaDeadline = new Date(
+    Date.now() + (SLA_HOURS[body.priority ?? 'medium'] ?? 24) * 3600000
+  ).toISOString();
+
   const ticketRow = {
     id:                 internalId,
     ghl_opportunity_id: ghlOpportunityId,
@@ -328,6 +333,8 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     contact_name:       body.userName ?? null,
     priority:           body.priority ?? 'medium',
     category:           body.category ?? 'general',
+    summary:            body.summary ?? null,
+    sla_deadline:       slaDeadline,
     updated_at:         new Date().toISOString(),
   };
   const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets`, {
@@ -1023,6 +1030,29 @@ export default {
 
     if (method === 'POST' && path === '/kb/save') {
       return saveKnowledgeBase(req, env, origin);
+    }
+
+    // GET /support/tickets/:id — return full support_tickets row by ghl_opportunity_id
+    const supportTicketMatch = path.match(/^\/support\/tickets\/([^/]+)$/);
+    if (method === 'GET' && supportTicketMatch) {
+      const ghlOppId = supportTicketMatch[1];
+      const stRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?ghl_opportunity_id=eq.${encodeURIComponent(ghlOppId)}&select=*&limit=1`,
+        {
+          headers: {
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        }
+      );
+      if (!stRes.ok) {
+        const detail = await stRes.text();
+        console.error('[support/tickets/:id] fetch failed:', stRes.status, detail);
+        return json({ error: 'ticket fetch failed', detail }, 502, origin);
+      }
+      const rows = await stRes.json() as any[];
+      if (!rows.length) return json({ error: 'not found' }, 404, origin);
+      return json(rows[0], 200, origin);
     }
 
     // GET /support/tickets/stages?locationId=xxx — return { [ghlOpportunityId]: status } map

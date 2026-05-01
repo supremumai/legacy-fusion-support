@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage, getMessages } from '../services/supabase';
-import { updateTicketStatus, updateTicketStage, fetchTicketStages, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
+import { updateTicketStatus, updateTicketStage, fetchTicketStages, fetchSupabaseTicket, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -338,6 +338,33 @@ async function loadWorkspace(ticket: any) {
         `https://app.gohighlevel.com/contacts/${contact.ghlContactId}`;
     }).catch(err => console.warn('[loadWorkspace] contact fetch failed:', err));
   }
+
+  // Async hydrate AI Analysis fields from Supabase support_tickets row
+  if (!IS_DEMO && ticket.ghlOpportunityId) {
+    fetchSupabaseTicket(ticket.ghlOpportunityId).then(row => {
+      if (!row || activeTicketId !== ticket.id) return;
+      const PRIORITY_COLORS_SB: Record<string, string> = {
+        urgent: '#f87171', high: '#FDA929', medium: '#00e5ff', low: '#8fa4b5',
+      };
+      document.getElementById('aiCategory')!.textContent = row.category ?? '—';
+      const pEl = document.getElementById('aiPriority')!;
+      const pVal = row.priority ?? '—';
+      pEl.textContent = pVal;
+      pEl.style.color = PRIORITY_COLORS_SB[pVal] ?? '';
+      document.getElementById('aiSLA')!.textContent =
+        row.sla_deadline ? slaLabel(new Date(row.sla_deadline)) : '—';
+      const sumEl = document.getElementById('aiSummaryText')!;
+      if (row.summary) sumEl.textContent = row.summary;
+      // Remove stale suggested action if summary now comes from Supabase
+      document.getElementById('aiSuggestedAction')?.remove();
+    }).catch(err => console.warn('[loadWorkspace] Supabase ticket fetch failed:', err));
+  }
+  // Ensure stageMap populated before rendering dropdown (fixes first-load default-to-'new' bug)
+  if (!IS_DEMO && Object.keys(stageMap).length === 0) {
+    await loadStageMap();
+    applyStageMap();
+  }
+
   // Render stage dropdown in workspace header
   const currentStage = stageMap[ticket.ghlOpportunityId] ?? ticket.status ?? 'new';
   const stageColor = STAGE_COLORS[currentStage] ?? '#06b6d4';
@@ -350,10 +377,13 @@ async function loadWorkspace(ticket: any) {
     actionsEl.querySelector('.stage-dropdown-wrapper')?.remove();
     const wrapper = document.createElement('div');
     wrapper.className = 'stage-dropdown-wrapper';
-    wrapper.innerHTML = `<select id="workspace-stage-select" class="stage-select"
-      style="border-color:${stageColor};color:${stageColor}"
-      onchange="handleWorkspaceStageChange(this.value,'${ticket.ghlOpportunityId}')"
-    >${stageOptions}</select>`;
+    wrapper.innerHTML = `<div class="stage-select-group">
+      <span class="stage-select-label">Status</span>
+      <select id="workspace-stage-select" class="stage-select"
+        style="border-color:${stageColor};color:${stageColor}"
+        onchange="handleWorkspaceStageChange(this.value,'${ticket.ghlOpportunityId}')"
+      >${stageOptions}</select>
+    </div>`;
     actionsEl.appendChild(wrapper);
   }
 

@@ -1162,3 +1162,19 @@
 .stage-select:hover {
   opacity: 0.85;
 }
+
+.stage-select-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage-select-label {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #8fa4b5);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
