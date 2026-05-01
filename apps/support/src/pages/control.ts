@@ -21,6 +21,7 @@ let activeStatusChannel: any = null;
 let currentUserId     = 'user-legacy';
 let currentLocationId = 'location-demo';
 let agentList: GHLUser[] = [];
+let currentView: '3panel' | 'pipeline' = '3panel';
 
 // ---------------------------------------------------------------------------
 // Demo seed data
@@ -65,6 +66,16 @@ function formatDate(str: string) { return new Date(str).toLocaleDateString('en-U
 function formatTime(date: Date) { return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 function formatMRR(val: number | null) { return val != null ? `$${val.toLocaleString()}/mo` : '—'; }
 function statusIsWaiting(s: string) { return s === 'waiting_client' || s === 'waiting_internal'; }
+
+function timeAgo(dateStr: string | Date): string {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -187,7 +198,8 @@ function filterTickets(tickets: any[]) {
   });
 }
 
-function renderTicketList(tickets: any[]) {
+function renderTicketList(tickets?: any[]) {
+  tickets = tickets ?? liveTickets;
   const list = document.getElementById('ticketList')!;
   list.innerHTML = '';
   const filtered = filterTickets(tickets);
@@ -673,7 +685,11 @@ async function silentRefresh() {
     if (fresh.length !== liveTickets.length || addedIds.length > 0) {
       liveTickets = fresh;
       updateCounts(liveTickets);
-      renderTicketList(liveTickets);
+      if (currentView === 'pipeline') {
+        renderPipelineBoard();
+      } else {
+        renderTicketList(liveTickets);
+      }
 
       // Flash new ticket rows
       addedIds.forEach(id => {
@@ -698,6 +714,9 @@ function startAutoRefresh() {
   refreshInterval = setInterval(silentRefresh, 30000);
 }
 
+// Pipeline toggle button
+document.getElementById('pipeline-toggle-btn')?.addEventListener('click', togglePipelineView);
+
 // Manual refresh button
 document.getElementById('refreshTicketsBtn')?.addEventListener('click', async () => {
   const btn = document.getElementById('refreshTicketsBtn')!;
@@ -705,6 +724,198 @@ document.getElementById('refreshTicketsBtn')?.addEventListener('click', async ()
   await fetchLiveTickets();
   setTimeout(() => btn.classList.remove('spinning'), 400);
 });
+
+// ---------------------------------------------------------------------------
+// Pipeline Kanban View
+// ---------------------------------------------------------------------------
+const PIPELINE_STAGES = [
+  { key: 'new',              label: 'New',                 color: '#06b6d4' },
+  { key: 'triaged',          label: 'Triaged',             color: '#a78bfa' },
+  { key: 'in_progress',      label: 'In Progress',         color: '#3b82f6' },
+  { key: 'waiting_client',   label: 'Waiting on Client',   color: '#f59e0b' },
+  { key: 'waiting_internal', label: 'Waiting on Internal', color: '#f97316' },
+  { key: 'escalated',        label: 'Escalated',           color: '#ef4444' },
+  { key: 'resolved',         label: 'Resolved',            color: '#22c55e' },
+  { key: 'closed',           label: 'Closed',              color: '#6b7280' },
+];
+
+function togglePipelineView() {
+  const btn = document.getElementById('pipeline-toggle-btn') as HTMLButtonElement;
+  if (currentView === '3panel') {
+    currentView = 'pipeline';
+    // Hide the 3-panel contents (queue + ticket list panels)
+    document.getElementById('queuePanel')!.style.display = 'none';
+    document.getElementById('ticketListPanel')!.style.display = 'none';
+    document.getElementById('workspacePanel')!.style.display = 'none';
+    renderPipelineBoard();
+    btn.textContent = '← Back';
+  } else {
+    currentView = '3panel';
+    // Show the 3-panel contents
+    document.getElementById('queuePanel')!.style.display = '';
+    document.getElementById('ticketListPanel')!.style.display = '';
+    document.getElementById('workspacePanel')!.style.display = '';
+    // Remove pipeline board
+    document.getElementById('pipeline-board')?.remove();
+    btn.textContent = '⬡ Pipeline';
+    renderTicketList();
+  }
+}
+
+function buildCard(ticket: any, stageColor: string): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'pipeline-card';
+  card.draggable = true;
+  card.dataset['ticketId'] = ticket.id;
+  card.dataset['status'] = ticket.status;
+  card.style.borderLeftColor = stageColor;
+
+  const title = ticket.title ?? 'Untitled';
+  const displayTitle = title.length > 40 ? title.slice(0, 40) + '…' : title;
+  const priority = ticket.priority ?? 'medium';
+  const priorityColor = priority === 'high' || priority === 'urgent' ? '#ef4444' : priority === 'medium' ? '#f59e0b' : '#6b7280';
+  const contactName = (ticket.contactName ?? ticket.contact?.name ?? 'Unknown');
+  const displayContact = contactName.length > 20 ? contactName.slice(0, 20) + '…' : contactName;
+  const dateVal = ticket.updatedAt ?? ticket.dateAdded ?? ticket.slaDeadline ?? new Date();
+
+  card.innerHTML = `
+    <div class="pipeline-card-title">${displayTitle}</div>
+    <div class="pipeline-card-meta">
+      <span class="badge-pill" style="background:${priorityColor}22;border-color:${priorityColor}44;color:${priorityColor};font-size:10px;padding:1px 6px;">${priority}</span>
+      <span class="pipeline-card-contact">${displayContact}</span>
+    </div>
+    <div class="pipeline-card-time">${timeAgo(dateVal)}</div>
+  `;
+
+  card.addEventListener('dragstart', (e: DragEvent) => {
+    card.classList.add('dragging');
+    e.dataTransfer!.setData('ticketId', ticket.id);
+    e.dataTransfer!.setData('fromStatus', ticket.status);
+    e.dataTransfer!.effectAllowed = 'move';
+  });
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+  });
+
+  card.addEventListener('click', () => {
+    // Switch back to 3panel and open this ticket
+    currentView = '3panel';
+    document.getElementById('queuePanel')!.style.display = '';
+    document.getElementById('ticketListPanel')!.style.display = '';
+    document.getElementById('workspacePanel')!.style.display = '';
+    document.getElementById('pipeline-board')?.remove();
+    const btn = document.getElementById('pipeline-toggle-btn') as HTMLButtonElement;
+    if (btn) btn.textContent = '⬡ Pipeline';
+    renderTicketList();
+    loadWorkspace(ticket);
+  });
+
+  return card;
+}
+
+function buildColumn(stage: { key: string; label: string; color: string }, tickets: any[]): HTMLElement {
+  const col = document.createElement('div');
+  col.className = 'pipeline-column';
+  col.dataset['stage'] = stage.key;
+
+  const stageTickets = tickets.filter(t => t.status === stage.key);
+
+  col.innerHTML = `
+    <div class="pipeline-column-header">
+      <span class="stage-dot" style="background:${stage.color};box-shadow:0 0 6px ${stage.color}66;"></span>
+      <span>${stage.label}</span>
+      <span class="col-count">${stageTickets.length}</span>
+    </div>
+  `;
+
+  const body = document.createElement('div');
+  body.className = 'pipeline-column-body';
+  body.dataset['stage'] = stage.key;
+
+  if (stageTickets.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'pipeline-col-empty';
+    empty.textContent = 'No tickets';
+    body.appendChild(empty);
+  } else {
+    stageTickets.forEach(t => body.appendChild(buildCard(t, stage.color)));
+  }
+
+  // Drag-over drop zone
+  body.addEventListener('dragover', (e: DragEvent) => {
+    e.preventDefault();
+    body.classList.add('drag-over');
+  });
+  body.addEventListener('dragleave', () => {
+    body.classList.remove('drag-over');
+  });
+  body.addEventListener('drop', async (e: DragEvent) => {
+    e.preventDefault();
+    body.classList.remove('drag-over');
+    const ticketId  = e.dataTransfer!.getData('ticketId');
+    const fromStatus = e.dataTransfer!.getData('fromStatus');
+    const toStatus   = stage.key;
+    if (fromStatus === toStatus) return;
+
+    try {
+      await updateTicketStatus(ticketId, toStatus);
+      // updateTicketStatus already mutates liveTickets via the Worker
+      // Also mutate local state immediately
+      const ticket = liveTickets.find((t: any) => t.id === ticketId);
+      if (ticket) ticket.status = toStatus;
+      rerenderColumn(fromStatus);
+      rerenderColumn(toStatus);
+      showToast(`Moved to ${stage.label}`);
+    } catch (err: any) {
+      showWsError(err.message ?? 'Move failed.');
+    }
+  });
+
+  col.appendChild(body);
+  return col;
+}
+
+function renderPipelineBoard() {
+  // Remove existing board if any
+  document.getElementById('pipeline-board')?.remove();
+
+  const controlApp = document.getElementById('controlApp')!;
+  const board = document.createElement('div');
+  board.id = 'pipeline-board';
+
+  PIPELINE_STAGES.forEach(stage => {
+    board.appendChild(buildColumn(stage, liveTickets));
+  });
+
+  controlApp.appendChild(board);
+}
+
+function rerenderColumn(stageKey: string) {
+  const stage = PIPELINE_STAGES.find(s => s.key === stageKey);
+  if (!stage) return;
+
+  // Find the column body
+  const body = document.querySelector(`#pipeline-board .pipeline-column-body[data-stage="${stageKey}"]`) as HTMLElement | null;
+  if (!body) return;
+
+  // Update header count
+  const col = body.closest('.pipeline-column') as HTMLElement | null;
+  const stageTickets = liveTickets.filter((t: any) => t.status === stageKey);
+  if (col) {
+    const countEl = col.querySelector('.col-count');
+    if (countEl) countEl.textContent = String(stageTickets.length);
+  }
+
+  body.innerHTML = '';
+  if (stageTickets.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'pipeline-col-empty';
+    empty.textContent = 'No tickets';
+    body.appendChild(empty);
+  } else {
+    stageTickets.forEach(t => body.appendChild(buildCard(t, stage.color)));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Init
