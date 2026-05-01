@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage, getMessages } from '../services/supabase';
-import { updateTicketStatus, updateTicketStage, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
+import { updateTicketStatus, updateTicketStage, fetchTicketStages, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -22,6 +22,7 @@ let currentUserId     = 'user-legacy';
 let currentLocationId = 'location-demo';
 let agentList: GHLUser[] = [];
 let currentView: '3panel' | 'pipeline' = '3panel';
+let stageMap: Record<string, string> = {};
 
 // ---------------------------------------------------------------------------
 // Demo seed data
@@ -686,6 +687,7 @@ async function silentRefresh() {
       liveTickets = fresh;
       updateCounts(liveTickets);
       if (currentView === 'pipeline') {
+        applyStageMap();
         renderPipelineBoard();
       } else {
         renderTicketList(liveTickets);
@@ -726,6 +728,30 @@ document.getElementById('refreshTicketsBtn')?.addEventListener('click', async ()
 });
 
 // ---------------------------------------------------------------------------
+// Stage map helpers — merge Supabase-persisted stages into liveTickets
+// ---------------------------------------------------------------------------
+async function loadStageMap(): Promise<void> {
+  if (IS_DEMO) return;
+  try {
+    stageMap = await fetchTicketStages(currentLocationId);
+    console.log('[pipeline] stageMap loaded:', Object.keys(stageMap).length, 'entries');
+  } catch (e) {
+    console.warn('[pipeline] loadStageMap failed (non-fatal):', e);
+    stageMap = {};
+  }
+}
+
+function applyStageMap(): void {
+  // Overwrites ticket.status from Supabase stageMap for any matching ghl_opportunity_id
+  for (const ticket of liveTickets) {
+    const ghlId = ticket.ghlOpportunityId ?? ticket.id;
+    if (stageMap[ghlId]) {
+      ticket.status = stageMap[ghlId];
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pipeline Kanban View
 // ---------------------------------------------------------------------------
 const PIPELINE_STAGES = [
@@ -739,7 +765,7 @@ const PIPELINE_STAGES = [
   { key: 'closed',           label: 'Closed',              color: '#6b7280' },
 ];
 
-function togglePipelineView() {
+async function togglePipelineView() {
   const btn = document.getElementById('pipeline-toggle-btn') as HTMLButtonElement;
   if (currentView === '3panel') {
     currentView = 'pipeline';
@@ -747,8 +773,11 @@ function togglePipelineView() {
     document.getElementById('queuePanel')!.style.display = 'none';
     document.getElementById('ticketListPanel')!.style.display = 'none';
     document.getElementById('workspacePanel')!.style.display = 'none';
-    renderPipelineBoard();
     btn.textContent = '← Back';
+    // Fetch fresh stages from Supabase, merge into liveTickets, then render
+    await loadStageMap();
+    applyStageMap();
+    renderPipelineBoard();
   } else {
     currentView = '3panel';
     // Show the 3-panel contents
@@ -866,11 +895,13 @@ function buildColumn(stage: { key: string; label: string; color: string }, ticke
     rerenderColumn(toStatus);
     showToast(`Moved to ${stage.label}`);
 
-    // Persist to Supabase (non-blocking)
+    // Persist to Supabase (non-blocking) + keep stageMap in sync
+    stageMap[ticketId] = toStatus;
     updateTicketStage(ticketId, toStatus).catch((err: any) => {
       console.error('[pipeline] stage update failed:', err);
       // Rollback optimistic update
       if (movedTicket) movedTicket.status = fromStatus;
+      stageMap[ticketId] = fromStatus;
       rerenderColumn(fromStatus);
       rerenderColumn(toStatus);
       showToast('Failed to update stage — reverted');

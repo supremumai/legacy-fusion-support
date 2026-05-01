@@ -318,32 +318,34 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     console.log('[notify] GHL_AGENT_CONTACT_ID not set — skipping agent notification');
   }
 
-  // Insert to support_tickets in Supabase — fire and forget, never blocks ticket creation
-  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
-    const ticketRow = {
-      id:                 internalId,
-      ghl_opportunity_id: ghlOpportunityId,
-      location_id:        env.GHL_LOCATION_ID,
-      status:             'new',
-      title:              body.title,
-      contact_name:       body.userName ?? null,
-      priority:           body.priority ?? 'medium',
-      category:           body.category ?? 'general',
-      updated_at:         new Date().toISOString(),
-    };
-    fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Prefer':        'return=minimal',
-      },
-      body: JSON.stringify(ticketRow),
-    }).then(r => {
-      if (!r.ok) r.text().then(t => console.error('[support_tickets] insert failed:', r.status, t));
-      else console.log('[support_tickets] inserted:', internalId);
-    }).catch(e => console.error('[support_tickets] insert error:', e instanceof Error ? e.message : String(e)));
+  // Insert to support_tickets in Supabase — awaited for error visibility, non-fatal
+  const ticketRow = {
+    id:                 internalId,
+    ghl_opportunity_id: ghlOpportunityId,
+    location_id:        env.GHL_LOCATION_ID,
+    status:             'new',
+    title:              body.title ?? null,
+    contact_name:       body.userName ?? null,
+    priority:           body.priority ?? 'medium',
+    category:           body.category ?? 'general',
+    updated_at:         new Date().toISOString(),
+  };
+  const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'return=minimal',
+    },
+    body: JSON.stringify(ticketRow),
+  });
+  if (!insertRes.ok) {
+    const detail = await insertRes.text();
+    console.error('[support_tickets] insert failed:', insertRes.status, detail);
+    // Non-fatal — ticket was created in GHL, log and continue
+  } else {
+    console.log('[support_tickets] inserted:', internalId, ghlOpportunityId);
   }
 
   return json({ ticketId: internalId, ghlOpportunityId }, 201, origin);
@@ -1021,6 +1023,37 @@ export default {
 
     if (method === 'POST' && path === '/kb/save') {
       return saveKnowledgeBase(req, env, origin);
+    }
+
+    // GET /support/tickets/stages?locationId=xxx — return { [ghlOpportunityId]: status } map
+    if (method === 'GET' && path === '/support/tickets/stages') {
+      const stagesLocationId = url.searchParams.get('locationId');
+      if (!stagesLocationId) return json({ error: 'locationId required' }, 400, origin);
+
+      const stagesRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${encodeURIComponent(stagesLocationId)}&select=ghl_opportunity_id,status`,
+        {
+          headers: {
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        }
+      );
+
+      if (!stagesRes.ok) {
+        const detail = await stagesRes.text();
+        console.error('[stages] fetch failed:', stagesRes.status, detail);
+        return json({ error: 'failed to fetch stages', detail }, 502, origin);
+      }
+
+      const rows = await stagesRes.json() as Array<{ ghl_opportunity_id: string; status: string }>;
+      const stageMap: Record<string, string> = {};
+      for (const row of rows) {
+        if (row.ghl_opportunity_id) stageMap[row.ghl_opportunity_id] = row.status;
+      }
+
+      console.log('[stages] returning', Object.keys(stageMap).length, 'stages for location:', stagesLocationId);
+      return json({ stages: stageMap }, 200, origin);
     }
 
     // PATCH /support/tickets/:id/stage — update pipeline stage in Supabase only

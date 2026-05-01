@@ -139,6 +139,25 @@ export async function updateTicketStage(
 }
 
 // ---------------------------------------------------------------------------
+// fetchTicketStages — returns { [ghlOpportunityId]: pipelineStage } from Supabase
+// Used by pipeline board to restore persisted stages on render.
+// ---------------------------------------------------------------------------
+export async function fetchTicketStages(
+  locationId: string
+): Promise<Record<string, string>> {
+  if (DEMO_MODE) return {};
+  const res = await fetch(`${WORKER_URL}/support/tickets/stages?locationId=${encodeURIComponent(locationId)}`, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    console.error('[fetchTicketStages] failed:', res.status);
+    return {};
+  }
+  const data = await res.json() as { stages: Record<string, string> };
+  return data.stages ?? {};
+}
+
+// ---------------------------------------------------------------------------
 // getTicket
 // ---------------------------------------------------------------------------
 export async function getTicket(ghlOpportunityId: string): Promise<Ticket> {
