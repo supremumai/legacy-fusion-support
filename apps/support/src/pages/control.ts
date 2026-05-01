@@ -172,7 +172,13 @@ document.getElementById('signOutBtn')!.addEventListener('click', async () => {
 // Counts + ticket list
 // ---------------------------------------------------------------------------
 function updateCounts(tickets: any[]) {
-  const c: Record<string, number> = { urgent:0, high:0, unassigned:0, billing:0, technical:0, general:0, in_progress:0, waiting:0, resolved:0 };
+  const c: Record<string, number> = {
+    urgent:0, high:0, unassigned:0,
+    billing:0, technical:0, general:0,
+    new:0, triaged:0, in_progress:0,
+    waiting_client:0, waiting_internal:0,
+    escalated:0, resolved:0, closed:0,
+  };
   tickets.forEach(t => {
     if (t.priority === 'urgent') c.urgent++;
     if (t.priority === 'high')   c.high++;
@@ -180,9 +186,9 @@ function updateCounts(tickets: any[]) {
     if (t.category === 'billing')    c.billing++;
     if (t.category === 'technical')  c.technical++;
     if (t.category === 'general')    c.general++;
-    if (t.status === 'in_progress')  c.in_progress++;
-    if (statusIsWaiting(t.status))   c.waiting++;
-    if (t.status === 'resolved' || t.status === 'closed') c.resolved++;
+    // Use stageMap for accurate stage counts (overrides GHL status)
+    const effectiveStatus = stageMap[t.ghlOpportunityId ?? t.id] ?? t.status ?? 'new';
+    if (effectiveStatus in c) c[effectiveStatus]++;
   });
   Object.keys(c).forEach(k => { const el = document.getElementById(`count-${k}`); if (el) el.textContent = String(c[k]); });
 }
@@ -194,7 +200,10 @@ function filterTickets(tickets: any[]) {
     if (activeFilter.type === 'unassigned') return !t.assignedTo;
     if (activeFilter.type === 'priority')   return t.priority === activeFilter.value;
     if (activeFilter.type === 'category')   return t.category === activeFilter.value;
-    if (activeFilter.type === 'status')     return activeFilter.value === 'waiting' ? statusIsWaiting(t.status) : t.status === activeFilter.value;
+    if (activeFilter.type === 'status') {
+      const effectiveStatus = stageMap[t.ghlOpportunityId ?? t.id] ?? t.status ?? 'new';
+      return effectiveStatus === activeFilter.value;
+    }
     return true;
   });
 }
@@ -283,7 +292,7 @@ function flashTicketRow(ticketId: string) {
 // ---------------------------------------------------------------------------
 async function loadWorkspace(ticket: any) {
   activeTicketId = ticket.id;
-  document.getElementById('wsTicketId')!.textContent      = ticket.id;
+  document.getElementById('wsTicketId')!.textContent      = ticket.contactName ?? ticket.contact?.name ?? 'Unknown';
   document.getElementById('wsSubject')!.textContent       = ticket.title;
   const s = ticket.aiSummary;
   document.getElementById('aiCategory')!.textContent     = s?.category ?? ticket.category ?? '—';
@@ -312,7 +321,7 @@ async function loadWorkspace(ticket: any) {
   }
   // Seed context strip immediately with available data, then hydrate from GHL
   const c = ticket.contact;
-  document.getElementById('ctxName')!.textContent        = c?.name ?? ticket.contactName ?? '—';
+  document.getElementById('ctxName')!.textContent        = ticket.contactName ?? c?.name ?? '—';
   document.getElementById('ctxPlanBadge')!.textContent   = c?.plan ?? '—';
   document.getElementById('ctxMRR')!.textContent         = formatMRR(c?.mrr ?? null);
   document.getElementById('ctxSince')!.textContent       = c?.memberSince ? formatDate(c.memberSince) : '—';
@@ -329,6 +338,25 @@ async function loadWorkspace(ticket: any) {
         `https://app.gohighlevel.com/contacts/${contact.ghlContactId}`;
     }).catch(err => console.warn('[loadWorkspace] contact fetch failed:', err));
   }
+  // Render stage dropdown in workspace header
+  const currentStage = stageMap[ticket.ghlOpportunityId] ?? ticket.status ?? 'new';
+  const stageColor = STAGE_COLORS[currentStage] ?? '#06b6d4';
+  const stageOptions = PIPELINE_STAGES.map(s =>
+    `<option value="${s.key}"${s.key === currentStage ? ' selected' : ''}>${s.label}</option>`
+  ).join('');
+  const actionsEl = document.querySelector('.workspace-header-actions');
+  if (actionsEl) {
+    // Remove old stage dropdown if present, keep Assign button
+    actionsEl.querySelector('.stage-dropdown-wrapper')?.remove();
+    const wrapper = document.createElement('div');
+    wrapper.className = 'stage-dropdown-wrapper';
+    wrapper.innerHTML = `<select id="workspace-stage-select" class="stage-select"
+      style="border-color:${stageColor};color:${stageColor}"
+      onchange="handleWorkspaceStageChange(this.value,'${ticket.ghlOpportunityId}')"
+    >${stageOptions}</select>`;
+    actionsEl.appendChild(wrapper);
+  }
+
   // Show workspace content immediately
   document.getElementById('workspaceEmpty')!.classList.add('hidden');
   const content = document.getElementById('workspaceContent')!;
@@ -507,7 +535,7 @@ replyInput.addEventListener('keydown', (e: Event) => {
 // agentList populated at init — see fetchAgentList()
 
 function setActionsBusy(busy: boolean) {
-  ['btnAssign','btnEscalate','btnResolve','btnClose'].forEach(id => { const el = document.getElementById(id); if (el) (el as HTMLButtonElement).disabled = busy; });
+  ['btnAssign'].forEach(id => { const el = document.getElementById(id); if (el) (el as HTMLButtonElement).disabled = busy; });
 }
 
 function showToast(msg: string, color = 'cyan') {
@@ -575,45 +603,65 @@ document.getElementById('btnAssign')!.addEventListener('click', () => {
   setTimeout(() => document.addEventListener('click', closeOnOutside), 0);
 });
 
-document.getElementById('btnEscalate')!.addEventListener('click', async () => {
-  if (!activeTicketId) return; setActionsBusy(true);
-  try {
-    if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'escalated');
-    mutateTicketStatus(activeTicketId, 'escalated');
-    renderTicketList(liveTickets); updateCounts(liveTickets);
-    showToast('Escalated → GHL synced', 'gold');
-  }
-  catch (err: any) { showWsError(err.message ?? 'Escalate failed.'); }
-  finally { setActionsBusy(false); }
-});
+// ---------------------------------------------------------------------------
+// Workspace stage dropdown
+// ---------------------------------------------------------------------------
+const STAGE_COLORS: Record<string, string> = {
+  new:              '#06b6d4',
+  triaged:          '#a78bfa',
+  in_progress:      '#3b82f6',
+  waiting_client:   '#f59e0b',
+  waiting_internal: '#f97316',
+  escalated:        '#ef4444',
+  resolved:         '#22c55e',
+  closed:           '#6b7280',
+};
 
-document.getElementById('btnResolve')!.addEventListener('click', async () => {
-  if (!activeTicketId) return; setActionsBusy(true);
-  const resolvedTicketId = activeTicketId;
-  try {
-    if (!IS_DEMO) await updateTicketStatus(resolvedTicketId, 'resolved');
-    mutateTicketStatus(resolvedTicketId, 'resolved');
-    renderTicketList(liveTickets); updateCounts(liveTickets);
-    showToast('Resolved ✓ — GHL marked Won');
-    // Show KB capture prompt with ticket context
-    const ticket = liveTickets.find((t: any) => t.id === resolvedTicketId);
-    if (ticket) showKBPrompt(ticket);
-  }
-  catch (err: any) { showWsError(err.message ?? 'Resolve failed.'); }
-  finally { setActionsBusy(false); }
-});
+// Expose to inline onchange — attached to window so Vite module scope doesn't hide it
+(window as any).handleWorkspaceStageChange = async function(
+  newStage: string,
+  ticketId: string
+): Promise<void> {
+  const prevStage = stageMap[ticketId] ?? 'new';
+  if (prevStage === newStage) return;
 
-document.getElementById('btnClose')!.addEventListener('click', async () => {
-  if (!activeTicketId) return; setActionsBusy(true);
-  try {
-    if (!IS_DEMO) await updateTicketStatus(activeTicketId, 'closed');
-    removeTicketFromList(activeTicketId);
-    renderTicketList(liveTickets); updateCounts(liveTickets);
-    showToast('Closed — GHL marked Lost', 'gold');
-    showWorkspaceEmpty();
+  // Update stageMap + liveTickets immediately (optimistic)
+  stageMap[ticketId] = newStage;
+  const ticket = liveTickets.find((t: any) => (t.ghlOpportunityId ?? t.id) === ticketId);
+  if (ticket) ticket.status = newStage;
+
+  // Update dropdown color
+  const select = document.getElementById('workspace-stage-select') as HTMLSelectElement | null;
+  const color = STAGE_COLORS[newStage] ?? '#06b6d4';
+  if (select) { select.style.borderColor = color; select.style.color = color; }
+
+  // If pipeline board is open, rerender affected columns
+  if (currentView === 'pipeline') {
+    rerenderColumn(prevStage);
+    rerenderColumn(newStage);
   }
-  catch (err: any) { showWsError(err.message ?? 'Close failed.'); setActionsBusy(false); }
-});
+
+  // Update ticket list counts
+  updateCounts(liveTickets);
+  renderTicketList(liveTickets);
+
+  showToast(`Stage → ${PIPELINE_STAGES.find(s => s.key === newStage)?.label ?? newStage}`);
+
+  // Persist to Supabase
+  try {
+    await updateTicketStage(ticketId, newStage);
+  } catch (err: any) {
+    console.error('[workspace] stage update failed:', err);
+    // Rollback
+    stageMap[ticketId] = prevStage;
+    if (ticket) ticket.status = prevStage;
+    if (select) { select.value = prevStage; const pc = STAGE_COLORS[prevStage] ?? '#06b6d4'; select.style.borderColor = pc; select.style.color = pc; }
+    if (currentView === 'pipeline') { rerenderColumn(newStage); rerenderColumn(prevStage); }
+    updateCounts(liveTickets);
+    renderTicketList(liveTickets);
+    showToast('Failed to update stage — reverted');
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Live ticket loader

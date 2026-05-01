@@ -90,17 +90,37 @@
       <!-- Status -->
       <div class="queue-section">
         <div class="queue-section-label">Status</div>
+        <button class="queue-item" data-filter="status" data-value="new">
+          <span>New</span>
+          <span class="filter-count badge-pill" id="count-new">0</span>
+        </button>
+        <button class="queue-item" data-filter="status" data-value="triaged">
+          <span>Triaged</span>
+          <span class="filter-count badge-pill" id="count-triaged">0</span>
+        </button>
         <button class="queue-item" data-filter="status" data-value="in_progress">
           <span>In Progress</span>
           <span class="filter-count badge-pill" id="count-in_progress">0</span>
         </button>
-        <button class="queue-item" data-filter="status" data-value="waiting">
-          <span>Waiting</span>
-          <span class="filter-count badge-pill" id="count-waiting">0</span>
+        <button class="queue-item" data-filter="status" data-value="waiting_client">
+          <span>Waiting Client</span>
+          <span class="filter-count badge-pill" id="count-waiting_client">0</span>
+        </button>
+        <button class="queue-item" data-filter="status" data-value="waiting_internal">
+          <span>Waiting Internal</span>
+          <span class="filter-count badge-pill" id="count-waiting_internal">0</span>
+        </button>
+        <button class="queue-item" data-filter="status" data-value="escalated">
+          <span>Escalated</span>
+          <span class="filter-count badge-pill" id="count-escalated">0</span>
         </button>
         <button class="queue-item" data-filter="status" data-value="resolved">
           <span>Resolved</span>
           <span class="filter-count badge-pill" id="count-resolved">0</span>
+        </button>
+        <button class="queue-item" data-filter="status" data-value="closed">
+          <span>Closed</span>
+          <span class="filter-count badge-pill" id="count-closed">0</span>
         </button>
       </div>
 
@@ -152,9 +172,7 @@
           </div>
           <div class="workspace-header-actions">
             <button class="btn-cyan ws-action-btn" id="btnAssign">Assign</button>
-            <button class="btn-cyan ws-action-btn" id="btnEscalate">Escalate</button>
-            <button class="btn-gold ws-action-btn" id="btnResolve">Resolve</button>
-            <button class="btn-outline ws-action-btn" id="btnClose">Close</button>
+            <!-- Stage dropdown injected by loadWorkspace() -->
           </div>
         </div>
 

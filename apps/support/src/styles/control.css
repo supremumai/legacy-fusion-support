@@ -391,11 +391,11 @@
 }
 
 .ws-ticket-id {
-  font-family: var(--font-data);
-  font-size: 0.82rem;
-  color: var(--cyan);
-  letter-spacing: 0.04em;
-  text-shadow: var(--shadow-cyan);
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
@@ -1124,4 +1124,41 @@
   overflow-x: auto;
   flex: 1;
   min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Workspace stage dropdown
+   --------------------------------------------------------------------------- */
+.stage-dropdown-wrapper {
+  display: inline-flex;
+  align-items: center;
+}
+
+.stage-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1.5px solid #06b6d4;
+  border-radius: 8px;
+  padding: 5px 28px 5px 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, color 0.15s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2306b6d4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  min-width: 160px;
+}
+
+.stage-select option {
+  background: #0f172a;
+  color: #e2e8f0;
+  font-weight: 500;
+}
+
+.stage-select:hover {
+  opacity: 0.85;
 }
