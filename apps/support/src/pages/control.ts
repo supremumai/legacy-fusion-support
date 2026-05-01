@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage, getMessages } from '../services/supabase';
-import { updateTicketStatus, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
+import { updateTicketStatus, updateTicketStage, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -857,18 +857,24 @@ function buildColumn(stage: { key: string; label: string; color: string }, ticke
     const toStatus   = stage.key;
     if (fromStatus === toStatus) return;
 
-    try {
-      await updateTicketStatus(ticketId, toStatus);
-      // updateTicketStatus already mutates liveTickets via the Worker
-      // Also mutate local state immediately
-      const ticket = liveTickets.find((t: any) => t.id === ticketId);
-      if (ticket) ticket.status = toStatus;
+    // Optimistic UI — move card immediately
+    const movedTicket = liveTickets.find((t: any) =>
+      (t.ghlOpportunityId ?? t.id) === ticketId || t.id === ticketId
+    );
+    if (movedTicket) movedTicket.status = toStatus;
+    rerenderColumn(fromStatus);
+    rerenderColumn(toStatus);
+    showToast(`Moved to ${stage.label}`);
+
+    // Persist to Supabase (non-blocking)
+    updateTicketStage(ticketId, toStatus).catch((err: any) => {
+      console.error('[pipeline] stage update failed:', err);
+      // Rollback optimistic update
+      if (movedTicket) movedTicket.status = fromStatus;
       rerenderColumn(fromStatus);
       rerenderColumn(toStatus);
-      showToast(`Moved to ${stage.label}`);
-    } catch (err: any) {
-      showWsError(err.message ?? 'Move failed.');
-    }
+      showToast('Failed to update stage — reverted');
+    });
   });
 
   col.appendChild(body);
@@ -883,10 +889,25 @@ function renderPipelineBoard() {
   const board = document.createElement('div');
   board.id = 'pipeline-board';
 
+  // Back button header row inside the board
+  const boardHeader = document.createElement('div');
+  boardHeader.className = 'pipeline-board-header';
+  const backBtn = document.createElement('button');
+  backBtn.className = 'pipeline-back-btn';
+  backBtn.textContent = '← Back to Queue';
+  backBtn.addEventListener('click', togglePipelineView);
+  boardHeader.appendChild(backBtn);
+  board.appendChild(boardHeader);
+
+  // Columns wrapper (horizontal scroll area)
+  const columnsWrapper = document.createElement('div');
+  columnsWrapper.className = 'pipeline-columns';
+
   PIPELINE_STAGES.forEach(stage => {
-    board.appendChild(buildColumn(stage, liveTickets));
+    columnsWrapper.appendChild(buildColumn(stage, liveTickets));
   });
 
+  board.appendChild(columnsWrapper);
   controlApp.appendChild(board);
 }
 

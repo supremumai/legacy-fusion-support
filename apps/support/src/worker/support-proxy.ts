@@ -318,6 +318,34 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     console.log('[notify] GHL_AGENT_CONTACT_ID not set — skipping agent notification');
   }
 
+  // Insert to support_tickets in Supabase — fire and forget, never blocks ticket creation
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    const ticketRow = {
+      id:                 internalId,
+      ghl_opportunity_id: ghlOpportunityId,
+      location_id:        env.GHL_LOCATION_ID,
+      status:             'new',
+      title:              body.title,
+      contact_name:       body.userName ?? null,
+      priority:           body.priority ?? 'medium',
+      category:           body.category ?? 'general',
+      updated_at:         new Date().toISOString(),
+    };
+    fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify(ticketRow),
+    }).then(r => {
+      if (!r.ok) r.text().then(t => console.error('[support_tickets] insert failed:', r.status, t));
+      else console.log('[support_tickets] inserted:', internalId);
+    }).catch(e => console.error('[support_tickets] insert error:', e instanceof Error ? e.message : String(e)));
+  }
+
   return json({ ticketId: internalId, ghlOpportunityId }, 201, origin);
 }
 
@@ -993,6 +1021,47 @@ export default {
 
     if (method === 'POST' && path === '/kb/save') {
       return saveKnowledgeBase(req, env, origin);
+    }
+
+    // PATCH /support/tickets/:id/stage — update pipeline stage in Supabase only
+    const stageMatch = path.match(/^\/support\/tickets\/([^/]+)\/stage$/);
+    if (method === 'PATCH' && stageMatch) {
+      const ticketId = stageMatch[1];
+      let stageBody: { stage: string };
+      try { stageBody = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400, origin); }
+
+      const VALID_STAGES = [
+        'new','triaged','in_progress','waiting_client',
+        'waiting_internal','escalated','resolved','closed',
+      ];
+      if (!stageBody.stage || !VALID_STAGES.includes(stageBody.stage)) {
+        return json({ error: 'invalid stage' }, 400, origin);
+      }
+
+      const stageRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?ghl_opportunity_id=eq.${encodeURIComponent(ticketId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({ status: stageBody.stage, updated_at: new Date().toISOString() }),
+        }
+      );
+
+      if (!stageRes.ok) {
+        const detail = await stageRes.text();
+        console.error('[stage] update failed:', stageRes.status, detail);
+        return json({ error: 'stage update failed', status: stageRes.status, detail }, 502, origin);
+      }
+
+      console.log('[stage] updated:', ticketId, '→', stageBody.stage);
+      // TODO: GHL pipeline sync (activate when opportunities write scope is granted)
+
+      return json({ success: true, ticketId, stage: stageBody.stage }, 200, origin);
     }
 
     return json({ error: 'Not found' }, 404, origin);

@@ -117,6 +117,28 @@ export async function updateTicketStatus(
 }
 
 // ---------------------------------------------------------------------------
+// updateTicketStage — Supabase-only stage update (drag-and-drop in kanban)
+// Does NOT call GHL. TODO: add GHL pipeline sync when scope is granted.
+// ---------------------------------------------------------------------------
+export async function updateTicketStage(
+  ticketId: string,
+  stage: string
+): Promise<void> {
+  if (DEMO_MODE) {
+    console.log('[demo] updateTicketStage:', ticketId, stage);
+    return;
+  }
+  await workerFetch<{ success: boolean }>(
+    `/support/tickets/${ticketId}/stage`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage }),
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
 // getTicket
 // ---------------------------------------------------------------------------
 export async function getTicket(ghlOpportunityId: string): Promise<Ticket> {
