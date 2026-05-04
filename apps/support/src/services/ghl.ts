@@ -280,6 +280,31 @@ export async function assignTicket(ticketId: string, assignedTo: string): Promis
 // ---------------------------------------------------------------------------
 // saveKnowledgeBase
 // ---------------------------------------------------------------------------
+export interface ManualTicketInput {
+  locationId: string;
+  title: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  businessName?: string;
+  source?: string;
+  category?: string;
+  priority?: string;
+  summary?: string;
+  plan?: string;
+  assignedTo?: string;
+}
+
+export async function createManualTicket(
+  input: ManualTicketInput
+): Promise<{ ticketId: string }> {
+  return workerFetch<{ ticketId: string }>('/support/tickets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 export interface KBEntry {
   ticketId:   string;
   locationId: string;

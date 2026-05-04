@@ -959,6 +959,94 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// POST /support/tickets — manual ticket creation from control panel
+// ---------------------------------------------------------------------------
+async function handleCreateManualTicket(
+  request: Request, env: Env, origin: string
+): Promise<Response> {
+  const {
+    locationId, title, contactName, contactEmail,
+    contactPhone, businessName, source, category,
+    priority, summary, plan, assignedTo
+  } = await request.json() as any
+
+  if (!locationId || !title) {
+    return json({ error: 'locationId and title required' }, 400, origin)
+  }
+
+  // GHL contact search — non-fatal, only if email provided
+  let ghlContactId: string | null = null
+  if (contactEmail) {
+    try {
+      const sr = await fetch(
+        `${GHL_V2_BASE}/contacts/?locationId=${locationId}&query=${encodeURIComponent(contactEmail)}`,
+        { headers: ghlHeaders(env.GHL_LOCATION_TOKEN) }
+      )
+      if (sr.ok) {
+        const sd = await sr.json() as any
+        const cs = sd.contacts ?? sd.data?.contacts ?? []
+        if (cs.length > 0) {
+          ghlContactId = cs[0].id ?? null
+          console.log('[manualTicket] GHL contact found:', ghlContactId)
+        }
+      }
+    } catch (e) {
+      console.warn('[manualTicket] GHL contact search failed (non-fatal):', e)
+    }
+  }
+
+  const SLA_HOURS: Record<string, number> = { urgent: 2, high: 4, medium: 24, low: 72 }
+  const slaDeadline = new Date(
+    Date.now() + (SLA_HOURS[priority ?? 'medium'] ?? 24) * 3600000
+  ).toISOString()
+
+  const internalId = 'T-' + Math.random().toString(36).slice(2, 10).toUpperCase()
+
+  const ticketRow = {
+    id: internalId,
+    location_id: locationId,
+    status: 'new',
+    title,
+    contact_name: contactName ?? null,
+    contact_email: contactEmail ?? null,
+    contact_phone: contactPhone ?? null,
+    business_name: businessName ?? null,
+    source: source ?? 'manual',
+    category: category ?? 'general',
+    priority: priority ?? 'medium',
+    summary: summary ?? null,
+    sla_deadline: slaDeadline,
+    plan: plan ?? null,
+    assigned_to: assignedTo ?? null,
+    ghl_contact_id: ghlContactId,
+    updated_at: new Date().toISOString()
+  }
+
+  const ir = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_tickets`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify(ticketRow)
+    }
+  )
+
+  if (!ir.ok) {
+    const detail = await ir.text()
+    console.error('[manualTicket] insert failed:', ir.status, detail)
+    return json({ error: 'manual ticket creation failed', detail }, 502, origin)
+  }
+
+  console.log('[manualTicket] created:', internalId)
+  return json({ ticketId: internalId }, 201, origin)
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 export default {
@@ -998,6 +1086,10 @@ export default {
 
     if (method === 'POST' && path === '/ghl/tickets/create') {
       return createTicket(req, env, origin);
+    }
+
+    if (method === 'POST' && path === '/support/tickets') {
+      return handleCreateManualTicket(req, env, origin);
     }
 
     const statusMatch = path.match(/^\/ghl\/tickets\/([^/]+)\/status$/);
