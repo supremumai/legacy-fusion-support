@@ -227,12 +227,10 @@ export async function listTickets(filters: ListTicketsFilters = {}): Promise<Tic
 
   const params = new URLSearchParams();
   if (filters.locationId) params.set('locationId', filters.locationId);
-  if (filters.contactId)  params.set('contactId', filters.contactId);
-  if (filters.status)     params.set('status', filters.status);
   if (filters.limit != null) params.set('limit', String(filters.limit));
 
   const query = params.toString() ? `?${params}` : '';
-  return workerFetch<Ticket[]>(`/ghl/tickets${query}`);
+  return workerFetch<Ticket[]>(`/support/tickets${query}`);
 }
 
 // ---------------------------------------------------------------------------

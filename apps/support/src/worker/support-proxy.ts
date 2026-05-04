@@ -959,6 +959,65 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// GET /support/tickets?locationId=xxx&limit=50
+async function handleGetTickets(request: Request, env: Env, origin: string): Promise<Response> {
+  const url = new URL(request.url);
+  const locationId = url.searchParams.get('locationId');
+  const limit = url.searchParams.get('limit') ?? '50';
+
+  if (!locationId) return json({ error: 'locationId required' }, 400, origin);
+
+  const res = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${encodeURIComponent(locationId)}&order=created_at.desc&limit=${limit}`,
+    {
+      headers: {
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Accept':        'application/json',
+      },
+    }
+  );
+
+  if (!res.ok) {
+    const detail = await res.text();
+    console.error('[getTickets] Supabase failed:', res.status, detail);
+    return json({ error: 'failed to fetch tickets', detail }, 502, origin);
+  }
+
+  const rows = await res.json() as any[];
+
+  const tickets = rows.map((row: any) => ({
+    id:               row.id,
+    ghlOpportunityId: row.ghl_opportunity_id ?? row.id,
+    ghlContactId:     row.ghl_contact_id ?? null,
+    title:            row.title ?? 'Untitled',
+    status:           row.status ?? 'new',
+    priority:         row.priority ?? 'medium',
+    category:         row.category ?? 'general',
+    contactName:      row.contact_name ?? 'Unknown',
+    contactEmail:     row.contact_email ?? null,
+    contactPhone:     row.contact_phone ?? null,
+    businessName:     row.business_name ?? null,
+    source:           row.source ?? 'chat',
+    assignedTo:       row.assigned_to ?? null,
+    plan:             row.plan ?? null,
+    summary:          row.summary ?? null,
+    slaDeadline:      row.sla_deadline ?? null,
+    createdAt:        row.created_at ?? row.updated_at,
+    updatedAt:        row.updated_at,
+    aiSummary: {
+      problem:         row.summary ?? '',
+      category:        row.category ?? 'general',
+      priority:        row.priority ?? 'medium',
+      suggestedAction: '',
+      generatedAt:     new Date(row.updated_at),
+    },
+  }));
+
+  console.log('[getTickets] returning', tickets.length, 'tickets for location:', locationId);
+  return json(tickets, 200, origin);
+}
+
 // POST /support/tickets — manual ticket creation from control panel
 // ---------------------------------------------------------------------------
 async function handleCreateManualTicket(
@@ -1088,6 +1147,10 @@ export default {
       return createTicket(req, env, origin);
     }
 
+    if (method === 'GET' && path === '/support/tickets') {
+      return handleGetTickets(req, env, origin);
+    }
+
     if (method === 'POST' && path === '/support/tickets') {
       return handleCreateManualTicket(req, env, origin);
     }
@@ -1153,7 +1216,7 @@ export default {
       if (!stagesLocationId) return json({ error: 'locationId required' }, 400, origin);
 
       const stagesRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${encodeURIComponent(stagesLocationId)}&select=ghl_opportunity_id,status`,
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${encodeURIComponent(stagesLocationId)}&select=id,ghl_opportunity_id,status`,
         {
           headers: {
             'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
@@ -1168,9 +1231,12 @@ export default {
         return json({ error: 'failed to fetch stages', detail }, 502, origin);
       }
 
-      const rows = await stagesRes.json() as Array<{ ghl_opportunity_id: string; status: string }>;
+      const rows = await stagesRes.json() as Array<{ id: string; ghl_opportunity_id: string | null; status: string }>;
       const stageMap: Record<string, string> = {};
       for (const row of rows) {
+        // Always index by internal id (covers manual tickets)
+        stageMap[row.id] = row.status;
+        // Also index by ghl_opportunity_id if present (covers GHL-linked tickets)
         if (row.ghl_opportunity_id) stageMap[row.ghl_opportunity_id] = row.status;
       }
 
@@ -1193,8 +1259,9 @@ export default {
         return json({ error: 'invalid stage' }, 400, origin);
       }
 
+      // Match by internal id first, fall back to ghl_opportunity_id for legacy tickets
       const stageRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/support_tickets?ghl_opportunity_id=eq.${encodeURIComponent(ticketId)}`,
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?or=(id.eq.${encodeURIComponent(ticketId)},ghl_opportunity_id.eq.${encodeURIComponent(ticketId)})`,
         {
           method: 'PATCH',
           headers: {
