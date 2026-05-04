@@ -225,17 +225,14 @@ export async function listTickets(filters: ListTicketsFilters = {}): Promise<Tic
     return tickets;
   }
 
-  const params = new URLSearchParams({
-    locationId: filters.locationId ?? '',
-    limit: String(filters.limit ?? 50)
-  })
+  const params = new URLSearchParams();
+  if (filters.locationId) params.set('locationId', filters.locationId);
+  if (filters.contactId)  params.set('contactId', filters.contactId);
+  if (filters.status)     params.set('status', filters.status);
+  if (filters.limit != null) params.set('limit', String(filters.limit));
 
-  try {
-    return await workerFetch<Ticket[]>(`/support/tickets?${params}`)
-  } catch (err) {
-    console.error('[listTickets] failed:', err)
-    return []
-  }
+  const query = params.toString() ? `?${params}` : '';
+  return workerFetch<Ticket[]>(`/ghl/tickets${query}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,35 +300,4 @@ export async function saveKnowledgeBase(entry: KBEntry): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(entry),
   });
-}
-
-// ---------------------------------------------------------------------------
-// createManualTicket
-// ---------------------------------------------------------------------------
-export interface ManualTicketInput {
-  locationId: string
-  title: string
-  contactName?: string
-  contactEmail?: string
-  contactPhone?: string
-  businessName?: string
-  source?: string
-  category?: string
-  priority?: string
-  summary?: string
-  plan?: string
-  assignedTo?: string
-}
-
-export async function createManualTicket(input: ManualTicketInput): Promise<{ ticketId: string }> {
-  const res = await fetch(`${WORKER_URL}/support/tickets`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`Manual ticket creation failed: ${JSON.stringify(err)}`)
-  }
-  return res.json()
 }

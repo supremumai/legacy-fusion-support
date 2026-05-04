@@ -1,6 +1,6 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { signOut, signInWithPassword, getSession, getProfile, subscribeToTicket, subscribeToTicketStatus, addMessage, getMessages } from '../services/supabase';
-import { updateTicketStatus, updateTicketStage, fetchTicketStages, fetchSupabaseTicket, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase, createManualTicket } from '../services/ghl';
+import { updateTicketStatus, updateTicketStage, fetchTicketStages, fetchSupabaseTicket, listTickets, getContact, getUsers, assignTicket, GHLUser, saveKnowledgeBase } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -23,7 +23,6 @@ let currentLocationId = 'location-demo';
 let agentList: GHLUser[] = [];
 let currentView: '3panel' | 'pipeline' = '3panel';
 let stageMap: Record<string, string> = {};
-let newTicketModalOpen = false;
 
 // ---------------------------------------------------------------------------
 // Demo seed data
@@ -1046,161 +1045,6 @@ function rerenderColumn(stageKey: string) {
   } else {
     stageTickets.forEach(t => body.appendChild(buildCard(t, stage.color)));
   }
-}
-
-// ---------------------------------------------------------------------------
-// New Ticket Modal
-// ---------------------------------------------------------------------------
-;(window as any).openNewTicketModal = function() {
-  newTicketModalOpen = true
-  renderNewTicketModal()
-}
-
-function renderNewTicketModal() {
-  const agentOptions = agentList.length > 0
-    ? '<option value="">Unassigned</option>' + agentList.map((a: any) => `<option value="${a.id}">${a.name}</option>`).join('')
-    : '<option value="" disabled>Loading agents…</option>'
-
-  const html = `
-    <div id="new-ticket-overlay" class="modal-overlay">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>New Ticket</h3>
-          <button onclick="closeNewTicketModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="modal-field">
-            <label>Title / Subject *</label>
-            <input type="text" id="ntTitle" placeholder="Brief description of issue" />
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div class="modal-field">
-              <label>Category</label>
-              <select id="ntCategory">
-                <option value="general">General</option>
-                <option value="billing">Billing</option>
-                <option value="technical">Technical</option>
-              </select>
-            </div>
-            <div class="modal-field">
-              <label>Priority</label>
-              <select id="ntPriority">
-                <option value="low">Low</option>
-                <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
-          </div>
-          <div class="modal-section-label">Contact Info</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div class="modal-field">
-              <label>Contact Name</label>
-              <input type="text" id="ntContactName" />
-            </div>
-            <div class="modal-field">
-              <label>Contact Email</label>
-              <input type="email" id="ntContactEmail" />
-            </div>
-            <div class="modal-field">
-              <label>Contact Phone</label>
-              <input type="text" id="ntContactPhone" />
-            </div>
-            <div class="modal-field">
-              <label>Business Name</label>
-              <input type="text" id="ntBusinessName" />
-            </div>
-          </div>
-          <div class="modal-section-label">Ticket Details</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div class="modal-field">
-              <label>Source</label>
-              <input type="text" id="ntSource" placeholder="Manual / Phone / Email" />
-            </div>
-            <div class="modal-field">
-              <label>Plan</label>
-              <select id="ntPlan">
-                <option value="">— None —</option>
-                <option value="Legacy Core">Legacy Core</option>
-                <option value="Legacy Edge">Legacy Edge</option>
-                <option value="Legacy Elite">Legacy Elite</option>
-              </select>
-            </div>
-          </div>
-          <div class="modal-field">
-            <label>Assign To</label>
-            <select id="ntAssignTo">${agentOptions}</select>
-          </div>
-          <div class="modal-field">
-            <label>Summary / Description</label>
-            <textarea id="ntSummary" rows="3" placeholder="Describe the issue…"></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-secondary" onclick="closeNewTicketModal()">Cancel</button>
-          <button class="btn-primary" onclick="submitNewTicket()">Create Ticket</button>
-        </div>
-      </div>
-    </div>
-  `
-  document.body.insertAdjacentHTML('beforeend', html)
-
-  if (agentList.length === 0) {
-    fetchAgentList().then(() => {
-      const sel = document.getElementById('ntAssignTo') as HTMLSelectElement
-      if (sel) {
-        sel.innerHTML = '<option value="">Unassigned</option>' +
-          agentList.map((a: any) => `<option value="${a.id}">${a.name}</option>`).join('')
-      }
-    })
-  }
-}
-
-;(window as any).closeNewTicketModal = function() {
-  document.getElementById('new-ticket-overlay')?.remove()
-  newTicketModalOpen = false
-}
-
-;(window as any).submitNewTicket = async function() {
-  const title = (document.getElementById('ntTitle') as HTMLInputElement)?.value?.trim()
-  if (!title) { showToast('Title is required'); return }
-
-  const btn = document.querySelector('#new-ticket-overlay .btn-primary') as HTMLButtonElement
-  if (btn) { btn.disabled = true; btn.textContent = 'Creating…' }
-
-  try {
-    const result = await createManualTicket({
-      locationId: currentLocationId,
-      title,
-      contactName: getVal('ntContactName'),
-      contactEmail: getVal('ntContactEmail'),
-      contactPhone: getVal('ntContactPhone'),
-      businessName: getVal('ntBusinessName'),
-      source: getVal('ntSource') || 'manual',
-      category: getVal('ntCategory'),
-      priority: getVal('ntPriority'),
-      summary: getVal('ntSummary'),
-      plan: getVal('ntPlan'),
-      assignedTo: getVal('ntAssignTo') || undefined
-    })
-
-    ;(window as any).closeNewTicketModal()
-    showToast(`Ticket ${result.ticketId} created`)
-
-    await fetchLiveTickets()
-    applyStageMap()
-    renderTicketList(liveTickets)
-    updateCounts(liveTickets)
-
-  } catch (err: any) {
-    console.error('[newTicket] failed:', err)
-    showToast('Failed to create ticket')
-    if (btn) { btn.disabled = false; btn.textContent = 'Create Ticket' }
-  }
-}
-
-function getVal(id: string): string {
-  return ((document.getElementById(id) as HTMLInputElement)?.value ?? '').trim()
 }
 
 // ---------------------------------------------------------------------------

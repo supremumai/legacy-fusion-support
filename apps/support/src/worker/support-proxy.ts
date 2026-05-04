@@ -188,81 +188,174 @@ function mapContactToContact(c: Record<string, unknown>): Contact {
 
 // POST /ghl/tickets/create
 async function createTicket(req: Request, env: Env, origin: string): Promise<Response> {
-  const {
-    userId, locationId, userName, userEmail,
-    title, category, priority, summary,
-    contactPhone, businessName, source, plan
-  } = await req.json() as any
+  const body = await req.json<{
+    userId:     string;
+    locationId: string;
+    userName:   string;
+    userEmail:  string;
+    title:      string;
+    category:   TicketCategory;
+    priority:   TicketPriority;
+    summary?:   string;
+  }>();
 
-  // Step 1 — Search GHL contact by email (optional, non-fatal)
-  let ghlContactId: string | null = null
-  try {
-    const searchRes = await fetch(
-      `${GHL_V2_BASE}/contacts/?locationId=${locationId}&query=${encodeURIComponent(userEmail ?? '')}`,
-      { headers: ghlHeaders(env.GHL_LOCATION_TOKEN) }
-    )
-    if (searchRes.ok) {
-      const searchData = await searchRes.json() as any
-      const contacts = searchData.contacts ?? searchData.data?.contacts ?? []
-      if (contacts.length > 0) {
-        ghlContactId = contacts[0].id ?? null
-        console.log('[createTicket] GHL contact found:', ghlContactId)
-      }
-    }
-  } catch (e) {
-    console.warn('[createTicket] GHL contact search failed (non-fatal):', e)
+  // Step 1 — search for existing contact by email
+  let contactId = '';
+  const searchParams = new URLSearchParams({
+    locationId: env.GHL_LOCATION_ID,
+    query:      body.userEmail,
+  });
+  console.log('[createTicket] params:', { userId: body.userId, locationId: body.locationId, userName: body.userName, userEmail: body.userEmail, title: body.title, category: body.category, priority: body.priority });
+  console.log('[createTicket] step1 search query:', body.userEmail);
+
+  const searchRes  = await fetch(`${GHL_V2_BASE}/contacts/?${searchParams}`, {
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+  });
+  const searchText = await searchRes.text();
+  console.log('[createTicket] step1 search status:', searchRes.status);
+  console.log('[createTicket] step1 search body:', searchText.slice(0, 500));
+
+  if (!searchRes.ok) {
+    return json({ error: 'GHL contact search failed', status: searchRes.status, detail: searchText }, 502, origin);
   }
 
-  // Step 2 — Calculate SLA deadline
-  const SLA_HOURS: Record<string, number> = { urgent: 2, high: 4, medium: 24, low: 72 }
+  const searchData = JSON.parse(searchText) as { contacts?: Array<{ id: string }> };
+  if (searchData.contacts && searchData.contacts.length > 0) {
+    contactId = searchData.contacts[0].id;
+    console.log('[createTicket] found existing contact:', contactId);
+  }
+
+  // Step 2 — create contact if not found
+  if (!contactId) {
+    const createPayload = {
+      locationId: env.GHL_LOCATION_ID,
+      name:       body.userName,
+      email:      body.userEmail,
+    };
+    console.log('[createTicket] step2 creating contact:', JSON.stringify(createPayload));
+
+    const createRes  = await fetch(`${GHL_V2_BASE}/contacts/`, {
+      method:  'POST',
+      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+      body:    JSON.stringify(createPayload),
+    });
+    const createText = await createRes.text();
+    console.log('[createTicket] step2 create status:', createRes.status);
+    console.log('[createTicket] step2 create body:', createText.slice(0, 500));
+
+    if (!createRes.ok) {
+      return json({ error: 'GHL contact creation failed', status: createRes.status, detail: createText }, 502, origin);
+    }
+
+    const createData = JSON.parse(createText) as { contact?: { id: string }; id?: string };
+    contactId = createData.contact?.id ?? createData.id ?? '';
+    console.log('[createTicket] step2 resolved contactId:', contactId);
+
+    if (!contactId) {
+      return json({ error: 'GHL contact creation returned no ID', detail: createText }, 502, origin);
+    }
+  }
+
+  // Step 3 — create the opportunity
+  const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
+  const oppPayload = {
+    pipelineId:      env.GHL_PIPELINE_ID,
+    locationId:      env.GHL_LOCATION_ID,
+    name:            body.title,
+    pipelineStageId: null,
+    status:          'open',
+    contactId,
+    monetaryValue:   0,
+    customFields: [
+      { key: 'lf_ticket_category', field_value: body.category ?? 'general' },
+      { key: 'lf_ticket_priority', field_value: body.priority ?? 'medium' },
+      { key: 'lf_ai_summary',      field_value: body.summary  ?? '' },
+    ],
+  };
+
+  console.log('[createTicket] step3 opportunity payload:', JSON.stringify(oppPayload));
+
+  const oppRes  = await fetch(`${GHL_V2_BASE}/opportunities/`, {
+    method:  'POST',
+    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+    body:    JSON.stringify(oppPayload),
+  });
+
+  console.log('[createTicket] step3 opp status:', oppRes.status);
+  const oppText = await oppRes.text();
+  console.log('[createTicket] step3 opp body:', oppText.slice(0, 500));
+
+  if (!oppRes.ok) {
+    return json({ error: 'GHL opportunity creation failed', status: oppRes.status, detail: oppText }, 502, origin);
+  }
+
+  const oppData = JSON.parse(oppText) as Record<string, unknown>;
+  console.log('[createTicket] opp response:', JSON.stringify(oppData).slice(0, 300));
+  const oppInner = (oppData.opportunity ?? oppData) as Record<string, unknown>;
+  const ghlOpportunityId = (oppInner?.id ?? null) as string | null;
+  console.log('[createTicket] real GHL opp ID:', ghlOpportunityId);
+  if (!ghlOpportunityId) {
+    console.error('[createTicket] no GHL opportunity ID in response — using fallback');
+    return json({ ticketId: internalId, ghlOpportunityId: internalId }, 201, origin);
+  }
+
+  // Notify agent via GHL SMS (fire-and-forget — never fail the ticket creation)
+  const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
+  if (agentContactId) {
+    const notifyPayload = {
+      type:      'SMS',
+      contactId: agentContactId,
+      message:   `New support ticket: ${body.title}\nCategory: ${body.category ?? 'general'}\nPriority: ${body.priority ?? 'medium'}\nSummary: ${body.summary ?? ''}`,
+    };
+    fetch(`${GHL_V2_BASE}/conversations/messages`, {
+      method:  'POST',
+      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+      body:    JSON.stringify(notifyPayload),
+    })
+      .then(r => console.log('[notify] agent notification sent, status:', r.status))
+      .catch(e => console.error('[notify] agent notification error:', e instanceof Error ? e.message : String(e)));
+  } else {
+    console.log('[notify] GHL_AGENT_CONTACT_ID not set — skipping agent notification');
+  }
+
+  // Insert to support_tickets in Supabase — awaited for error visibility, non-fatal
+  const SLA_HOURS: Record<string, number> = { urgent: 2, high: 4, medium: 24, low: 72 };
   const slaDeadline = new Date(
-    Date.now() + (SLA_HOURS[priority ?? 'medium'] ?? 24) * 3600000
-  ).toISOString()
+    Date.now() + (SLA_HOURS[body.priority ?? 'medium'] ?? 24) * 3600000
+  ).toISOString();
 
-  // Step 3 — Generate internal ticket ID
-  const internalId = 'T-' + Math.random().toString(36).slice(2, 10).toUpperCase()
-
-  // Step 4 — Insert to Supabase
   const ticketRow = {
-    id: internalId,
-    location_id: locationId,
-    status: 'new',
-    title: title ?? null,
-    contact_name: userName ?? null,
-    contact_email: userEmail ?? null,
-    contact_phone: contactPhone ?? null,
-    business_name: businessName ?? null,
-    source: source ?? 'chat',
-    priority: priority ?? 'medium',
-    category: category ?? 'general',
-    summary: summary ?? null,
-    sla_deadline: slaDeadline,
-    plan: plan ?? null,
-    ghl_contact_id: ghlContactId,
-    updated_at: new Date().toISOString()
-  }
-
-  const insertRes = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/support_tickets`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify(ticketRow)
-    }
-  )
-
+    id:                 internalId,
+    ghl_opportunity_id: ghlOpportunityId,
+    location_id:        env.GHL_LOCATION_ID,
+    status:             'new',
+    title:              body.title ?? null,
+    contact_name:       body.userName ?? null,
+    priority:           body.priority ?? 'medium',
+    category:           body.category ?? 'general',
+    summary:            body.summary ?? null,
+    sla_deadline:       slaDeadline,
+    updated_at:         new Date().toISOString(),
+  };
+  const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'return=minimal',
+    },
+    body: JSON.stringify(ticketRow),
+  });
   if (!insertRes.ok) {
-    const detail = await insertRes.text()
-    return json({ error: 'ticket creation failed', detail }, 502, origin)
+    const detail = await insertRes.text();
+    console.error('[support_tickets] insert failed:', insertRes.status, detail);
+    // Non-fatal — ticket was created in GHL, log and continue
+  } else {
+    console.log('[support_tickets] inserted:', internalId, ghlOpportunityId);
   }
 
-  console.log('[createTicket] created:', internalId)
-  return json({ ticketId: internalId, ghlContactId }, 201, origin)
+  return json({ ticketId: internalId, ghlOpportunityId }, 201, origin);
 }
 
 // PATCH /ghl/tickets/:id/status
@@ -728,35 +821,44 @@ Rules:
 // Verifies Supabase and GHL connectivity without exposing secrets.
 // No auth required.
 // ---------------------------------------------------------------------------
-async function handleHealth(env: Env, origin: string): Promise<Response> {
+async function handleHealth(env: Env): Promise<Response> {
   const timestamp = new Date().toISOString();
 
   // Defensive: check required env bindings are present
   if (!env.SUPABASE_URL) {
-    return json({
+    return new Response(JSON.stringify({
       status:  'misconfigured',
       error:   'SUPABASE_URL is not bound to Worker env — check wrangler.toml [vars] or Cloudflare dashboard secrets',
       project: 'legacy-fusion-support',
       timestamp,
-    }, 503, origin);
+    }), {
+      status:  503,
+      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
+    });
   }
 
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {
-    return json({
+    return new Response(JSON.stringify({
       status:  'misconfigured',
       error:   'SUPABASE_SERVICE_ROLE_KEY secret is not bound — run: wrangler secret put SUPABASE_SERVICE_ROLE_KEY',
       project: 'legacy-fusion-support',
       timestamp,
-    }, 503, origin);
+    }), {
+      status:  503,
+      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
+    });
   }
 
   if (!env.GHL_LOCATION_TOKEN) {
-    return json({
+    return new Response(JSON.stringify({
       status:  'misconfigured',
       error:   'GHL_LOCATION_TOKEN secret is not bound — run: wrangler secret put GHL_LOCATION_TOKEN',
       project: 'legacy-fusion-support',
       timestamp,
-    }, 503, origin);
+    }), {
+      status:  503,
+      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
+    });
   }
 
   // Supabase check — SELECT from support_messages LIMIT 1
@@ -801,7 +903,10 @@ async function handleHealth(env: Env, origin: string): Promise<Response> {
   if (supabaseDetail) body.supabaseDetail = supabaseDetail;
   if (ghlDetail)      body.ghlDetail      = ghlDetail;
 
-  return json(body, allOk ? 200 : 503, origin);
+  return new Response(JSON.stringify(body), {
+    status:  allOk ? 200 : 503,
+    headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -853,109 +958,6 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
   return json({ received: true, handled: true, opportunityId, newStatus }, 200, '');
 }
 
-// GET /support/tickets?locationId=xxx&limit=50
-async function handleGetTickets(request: Request, env: Env, origin: string): Promise<Response> {
-  const url = new URL(request.url)
-  const locationId = url.searchParams.get('locationId')
-  const limit = url.searchParams.get('limit') ?? '50'
-
-  if (!locationId) return json({ error: 'locationId required' }, 400, origin)
-
-  const query = `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${locationId}&order=created_at.desc&limit=${limit}`
-
-  const res = await fetch(query, {
-    headers: {
-      'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      'Accept': 'application/json'
-    }
-  })
-
-  if (!res.ok) {
-    const detail = await res.text()
-    return json({ error: 'failed to fetch tickets', detail }, 502, origin)
-  }
-
-  const tickets = await res.json() as any[]
-  return json(tickets, 200, origin)
-}
-
-// POST /support/tickets (manual ticket creation)
-async function handleCreateManualTicket(request: Request, env: Env, origin: string): Promise<Response> {
-  const {
-    locationId, title, contactName, contactEmail, contactPhone,
-    businessName, source, category, priority, summary, plan, assignedTo
-  } = await request.json() as any
-
-  if (!locationId || !title) return json({ error: 'locationId and title required' }, 400, origin)
-
-  let ghlContactId: string | null = null
-  if (contactEmail) {
-    try {
-      const searchRes = await fetch(
-        `${GHL_V2_BASE}/contacts/?locationId=${locationId}&query=${encodeURIComponent(contactEmail)}`,
-        { headers: ghlHeaders(env.GHL_LOCATION_TOKEN) }
-      )
-      if (searchRes.ok) {
-        const searchData = await searchRes.json() as any
-        const contacts = searchData.contacts ?? searchData.data?.contacts ?? []
-        if (contacts.length > 0) ghlContactId = contacts[0].id ?? null
-      }
-    } catch (e) {
-      console.warn('[manualTicket] GHL contact search failed (non-fatal):', e)
-    }
-  }
-
-  const SLA_HOURS: Record<string, number> = { urgent: 2, high: 4, medium: 24, low: 72 }
-  const slaDeadline = new Date(
-    Date.now() + (SLA_HOURS[priority ?? 'medium'] ?? 24) * 3600000
-  ).toISOString()
-
-  const internalId = 'T-' + Math.random().toString(36).slice(2, 10).toUpperCase()
-
-  const ticketRow = {
-    id: internalId,
-    location_id: locationId,
-    status: 'new',
-    title,
-    contact_name: contactName ?? null,
-    contact_email: contactEmail ?? null,
-    contact_phone: contactPhone ?? null,
-    business_name: businessName ?? null,
-    source: source ?? 'manual',
-    category: category ?? 'general',
-    priority: priority ?? 'medium',
-    summary: summary ?? null,
-    sla_deadline: slaDeadline,
-    plan: plan ?? null,
-    assigned_to: assignedTo ?? null,
-    ghl_contact_id: ghlContactId,
-    updated_at: new Date().toISOString()
-  }
-
-  const ir = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/support_tickets`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify(ticketRow)
-    }
-  )
-
-  if (!ir.ok) {
-    const detail = await ir.text()
-    return json({ error: 'manual ticket creation failed', detail }, 502, origin)
-  }
-
-  console.log('[manualTicket] created:', internalId)
-  return json({ ticketId: internalId }, 201, origin)
-}
-
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -965,6 +967,11 @@ export default {
     const method = req.method.toUpperCase();
     const path   = url.pathname;
 
+    // Health check — no auth, no CORS enforcement
+    if (method === 'GET' && path === '/health') {
+      return handleHealth(env);
+    }
+
     // GHL webhook — no CORS check, signature validated internally
     if (method === 'POST' && path === '/webhooks/ghl') {
       return handleGHLWebhook(req, env);
@@ -972,29 +979,18 @@ export default {
 
     // CORS enforcement for all browser-facing routes
     const requestOrigin = req.headers.get('Origin') ?? '';
-
-    const ALLOWED_ORIGINS = [
-      env.SUPPORT_CORS_ORIGIN,
-      'https://legacy-fusion-support.hector-0b9.workers.dev',
-    ].filter(Boolean);
-
-    const isAllowed = !requestOrigin || ALLOWED_ORIGINS.includes(requestOrigin);
+    const allowedOrigin = env.SUPPORT_CORS_ORIGIN;
 
     if (method === 'OPTIONS') {
-      if (!isAllowed) return new Response('Forbidden', { status: 403 });
-      return handlePreflight(requestOrigin || ALLOWED_ORIGINS[0]);
+      if (requestOrigin !== allowedOrigin) return new Response('Forbidden', { status: 403 });
+      return handlePreflight(allowedOrigin);
     }
 
-    if (!isAllowed) {
+    if (requestOrigin && requestOrigin !== allowedOrigin) {
       return json({ error: 'Forbidden: origin not allowed' }, 403, '');
     }
 
-    const origin = requestOrigin || ALLOWED_ORIGINS[0];
-
-    // Health check — after origin resolution so CORS headers are included
-    if (method === 'GET' && path === '/health') {
-      return handleHealth(env, origin);
-    }
+    const origin = allowedOrigin;
 
     if (method === 'POST' && path === '/ai/chat') {
       return handleAIChat(req, env, origin);
@@ -1002,14 +998,6 @@ export default {
 
     if (method === 'POST' && path === '/ghl/tickets/create') {
       return createTicket(req, env, origin);
-    }
-
-    if (method === 'GET' && path === '/support/tickets') {
-      return handleGetTickets(req, env, origin);
-    }
-
-    if (method === 'POST' && path === '/support/tickets') {
-      return handleCreateManualTicket(req, env, origin);
     }
 
     const statusMatch = path.match(/^\/ghl\/tickets\/([^/]+)\/status$/);
