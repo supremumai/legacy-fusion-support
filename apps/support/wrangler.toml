@@ -36,3 +36,11 @@ VITE_DEMO_MODE          = "false"
 #   wrangler secret put VITE_SUPABASE_ANON_KEY
 #   wrangler secret put ANTHROPIC_API_KEY
 # ---------------------------------------------------------------------------
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
