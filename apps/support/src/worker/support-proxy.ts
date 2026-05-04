@@ -728,44 +728,35 @@ Rules:
 // Verifies Supabase and GHL connectivity without exposing secrets.
 // No auth required.
 // ---------------------------------------------------------------------------
-async function handleHealth(env: Env): Promise<Response> {
+async function handleHealth(env: Env, origin: string): Promise<Response> {
   const timestamp = new Date().toISOString();
 
   // Defensive: check required env bindings are present
   if (!env.SUPABASE_URL) {
-    return new Response(JSON.stringify({
+    return json({
       status:  'misconfigured',
       error:   'SUPABASE_URL is not bound to Worker env — check wrangler.toml [vars] or Cloudflare dashboard secrets',
       project: 'legacy-fusion-support',
       timestamp,
-    }), {
-      status:  503,
-      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
-    });
+    }, 503, origin);
   }
 
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {
-    return new Response(JSON.stringify({
+    return json({
       status:  'misconfigured',
       error:   'SUPABASE_SERVICE_ROLE_KEY secret is not bound — run: wrangler secret put SUPABASE_SERVICE_ROLE_KEY',
       project: 'legacy-fusion-support',
       timestamp,
-    }), {
-      status:  503,
-      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
-    });
+    }, 503, origin);
   }
 
   if (!env.GHL_LOCATION_TOKEN) {
-    return new Response(JSON.stringify({
+    return json({
       status:  'misconfigured',
       error:   'GHL_LOCATION_TOKEN secret is not bound — run: wrangler secret put GHL_LOCATION_TOKEN',
       project: 'legacy-fusion-support',
       timestamp,
-    }), {
-      status:  503,
-      headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
-    });
+    }, 503, origin);
   }
 
   // Supabase check — SELECT from support_messages LIMIT 1
@@ -810,10 +801,7 @@ async function handleHealth(env: Env): Promise<Response> {
   if (supabaseDetail) body.supabaseDetail = supabaseDetail;
   if (ghlDetail)      body.ghlDetail      = ghlDetail;
 
-  return new Response(JSON.stringify(body), {
-    status:  allOk ? 200 : 503,
-    headers: { 'Content-Type': 'application/json', ...IFRAME_HEADERS },
-  });
+  return json(body, allOk ? 200 : 503, origin);
 }
 
 // ---------------------------------------------------------------------------
@@ -977,11 +965,6 @@ export default {
     const method = req.method.toUpperCase();
     const path   = url.pathname;
 
-    // Health check — no auth, no CORS enforcement
-    if (method === 'GET' && path === '/health') {
-      return handleHealth(env);
-    }
-
     // GHL webhook — no CORS check, signature validated internally
     if (method === 'POST' && path === '/webhooks/ghl') {
       return handleGHLWebhook(req, env);
@@ -989,18 +972,29 @@ export default {
 
     // CORS enforcement for all browser-facing routes
     const requestOrigin = req.headers.get('Origin') ?? '';
-    const allowedOrigin = env.SUPPORT_CORS_ORIGIN;
+
+    const ALLOWED_ORIGINS = [
+      env.SUPPORT_CORS_ORIGIN,
+      'https://legacy-fusion-support.hector-0b9.workers.dev',
+    ].filter(Boolean);
+
+    const isAllowed = !requestOrigin || ALLOWED_ORIGINS.includes(requestOrigin);
 
     if (method === 'OPTIONS') {
-      if (requestOrigin !== allowedOrigin) return new Response('Forbidden', { status: 403 });
-      return handlePreflight(allowedOrigin);
+      if (!isAllowed) return new Response('Forbidden', { status: 403 });
+      return handlePreflight(requestOrigin || ALLOWED_ORIGINS[0]);
     }
 
-    if (requestOrigin && requestOrigin !== allowedOrigin) {
+    if (!isAllowed) {
       return json({ error: 'Forbidden: origin not allowed' }, 403, '');
     }
 
-    const origin = allowedOrigin;
+    const origin = requestOrigin || ALLOWED_ORIGINS[0];
+
+    // Health check — after origin resolution so CORS headers are included
+    if (method === 'GET' && path === '/health') {
+      return handleHealth(env, origin);
+    }
 
     if (method === 'POST' && path === '/ai/chat') {
       return handleAIChat(req, env, origin);
