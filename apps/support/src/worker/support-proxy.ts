@@ -968,7 +968,7 @@ async function handleGetTickets(request: Request, env: Env, origin: string): Pro
   if (!locationId) return json({ error: 'locationId required' }, 400, origin);
 
   const res = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${encodeURIComponent(locationId)}&order=created_at.desc&limit=${limit}`,
+    `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${encodeURIComponent(locationId)}&order=updated_at.desc&limit=${limit}`,
     {
       headers: {
         'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
