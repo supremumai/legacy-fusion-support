@@ -197,6 +197,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     category:   TicketCategory;
     priority:   TicketPriority;
     summary?:   string;
+    source?:    string;
   }>();
 
   // Step 1 — search for existing contact by email
@@ -334,6 +335,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     priority:           body.priority ?? 'medium',
     category:           body.category ?? 'general',
     summary:            body.summary ?? null,
+    source:             (body.source ?? 'chat').toLowerCase(),
     sla_deadline:       slaDeadline,
     updated_at:         new Date().toISOString(),
   };
@@ -1070,7 +1072,7 @@ async function handleCreateManualTicket(
     contact_email: contactEmail ?? null,
     contact_phone: contactPhone ?? null,
     business_name: businessName ?? null,
-    source: source ?? 'manual',
+    source: (source ?? 'manual').toLowerCase(),
     category: category ?? 'general',
     priority: priority ?? 'medium',
     summary: summary ?? null,
