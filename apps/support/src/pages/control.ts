@@ -192,6 +192,13 @@ function updateCounts(tickets: any[]) {
     if (effectiveStatus in c) c[effectiveStatus]++;
   });
   Object.keys(c).forEach(k => { const el = document.getElementById(`count-${k}`); if (el) el.textContent = String(c[k]); });
+
+  const chatCount = tickets.filter((t: any) => t.source === 'chat' || !t.source).length;
+  const manualCount = tickets.filter((t: any) => t.source && t.source !== 'chat').length;
+  const chatEl = document.getElementById('count-source-chat');
+  const manualEl = document.getElementById('count-source-manual');
+  if (chatEl) chatEl.textContent = String(chatCount);
+  if (manualEl) manualEl.textContent = String(manualCount);
 }
 
 function filterTickets(tickets: any[]) {
@@ -204,6 +211,12 @@ function filterTickets(tickets: any[]) {
     if (activeFilter.type === 'status') {
       const effectiveStatus = stageMap[t.ghlOpportunityId ?? t.id] ?? t.status ?? 'new';
       return effectiveStatus === activeFilter.value;
+    }
+    if (activeFilter.type === 'source') {
+      if (activeFilter.value === 'chat') {
+        return t.source === 'chat' || !t.source;
+      }
+      return t.source === activeFilter.value;
     }
     return true;
   });
@@ -767,17 +780,26 @@ async function silentRefresh() {
     // Find tickets that are truly new
     const addedIds = [...newIds].filter(id => !prevIds.has(id));
 
-    if (fresh.length !== liveTickets.length || addedIds.length > 0) {
-      liveTickets = fresh;
-      updateCounts(liveTickets);
-      if (currentView === 'pipeline') {
-        applyStageMap();
-        renderPipelineBoard();
-      } else {
-        renderTicketList(liveTickets);
-      }
+    // Always update liveTickets — source of truth is Supabase
+    const hasChanges = fresh.length !== liveTickets.length ||
+      addedIds.length > 0 ||
+      fresh.some((t: any) => {
+        const existing = liveTickets.find((e: any) => e.id === t.id);
+        return !existing;
+      });
 
-      // Flash new ticket rows
+    liveTickets = fresh; // always replace — never keep stale data
+    updateCounts(liveTickets);
+
+    if (currentView === 'pipeline') {
+      applyStageMap();
+      renderPipelineBoard();
+    } else {
+      renderTicketList(liveTickets);
+    }
+
+    // Flash only genuinely new tickets
+    if (addedIds.length > 0) {
       addedIds.forEach(id => {
         const row = document.querySelector(`.ticket-row[data-ticket-id="${id}"]`);
         if (row) {
@@ -785,10 +807,7 @@ async function silentRefresh() {
           setTimeout(() => row.classList.remove('flash-cyan'), 1500);
         }
       });
-
-      if (addedIds.length > 0) {
-        console.log('[control] silentRefresh: new tickets detected:', addedIds);
-      }
+      console.log('[control] silentRefresh: new tickets:', addedIds);
     }
   } catch (err) {
     console.warn('[control] silentRefresh error:', err);
@@ -871,7 +890,20 @@ async function togglePipelineView() {
     // Remove pipeline board
     document.getElementById('pipeline-board')?.remove();
     btn.textContent = '⬡ Pipeline';
-    renderTicketList();
+
+    // Re-fetch to ensure manual tickets are included
+    try {
+      const fresh = await listTickets({
+        locationId: currentLocationId,
+        limit: 50
+      });
+      liveTickets = fresh;
+      applyStageMap();
+      updateCounts(liveTickets);
+    } catch (err) {
+      console.warn('[toggle] refresh failed, using cached:', err);
+    }
+    renderTicketList(liveTickets);
   }
 }
 
