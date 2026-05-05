@@ -61,7 +61,7 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
 
   console.log('[ghl] createTicket params:', JSON.stringify(params));
 
-  const result = await workerFetch<{ ticketId: string; ghlOpportunityId: string }>(
+  const result = await workerFetch<{ ticketId: string }>(
     '/ghl/tickets/create',
     {
       method: 'POST',
@@ -78,13 +78,11 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
     }
   );
 
-  // Return minimal ticket directly — avoid a second GHL fetch that could obscure the real ID
-  const ghlId = result.ghlOpportunityId ?? result.ticketId;
-  console.log('[ghl] createTicket result — ticketId:', result.ticketId, 'ghlOpportunityId:', ghlId);
+  console.log('[ghl] createTicket result — ticketId:', result.ticketId);
 
   return {
     id:               result.ticketId,
-    ghlOpportunityId: ghlId,
+    ghlOpportunityId: result.ticketId,
     title:            params.title,
     category:         params.category,
     priority:         params.priority,
@@ -183,6 +181,43 @@ export async function fetchSupabaseTicket(
     return await res.json() as SupabaseTicketRow;
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// fetchMyTickets — returns grouped open/waiting/resolved tickets for a user
+// ---------------------------------------------------------------------------
+export interface MyTicketItem {
+  id:         string;
+  status:     string;
+  title:      string;
+  updated_at: string;
+  priority:   string;
+  category:   string;
+}
+
+export interface MyTicketsGroup {
+  open:     MyTicketItem[];
+  waiting:  MyTicketItem[];
+  resolved: MyTicketItem[];
+}
+
+export async function fetchMyTickets(
+  userId:     string,
+  locationId: string
+): Promise<MyTicketsGroup> {
+  const empty: MyTicketsGroup = { open: [], waiting: [], resolved: [] };
+  if (IS_DEMO) return empty;
+  try {
+    const res = await workerFetch<MyTicketsGroup>(
+      `/support/tickets/mine` +
+      `?userId=${encodeURIComponent(userId)}` +
+      `&locationId=${encodeURIComponent(locationId)}`
+    );
+    return res;
+  } catch (err) {
+    console.error('[fetchMyTickets] error:', err);
+    return empty;
   }
 }
 

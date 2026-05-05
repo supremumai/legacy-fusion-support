@@ -200,164 +200,105 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     source?:    string;
   }>();
 
-  // Step 1 — search for existing contact by email
-  let contactId = '';
-  const searchParams = new URLSearchParams({
-    locationId: env.GHL_LOCATION_ID,
-    query:      body.userEmail,
+  console.log('[createTicket] params:', {
+    userId:     body.userId,
+    locationId: body.locationId,
+    userName:   body.userName,
+    title:      body.title,
   });
-  console.log('[createTicket] params:', { userId: body.userId, locationId: body.locationId, userName: body.userName, userEmail: body.userEmail, title: body.title, category: body.category, priority: body.priority });
-  console.log('[createTicket] step1 search query:', body.userEmail);
 
-  const searchRes  = await fetch(`${GHL_V2_BASE}/contacts/?${searchParams}`, {
-    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
-  });
-  const searchText = await searchRes.text();
-  console.log('[createTicket] step1 search status:', searchRes.status);
-  console.log('[createTicket] step1 search body:', searchText.slice(0, 500));
-
-  if (!searchRes.ok) {
-    return json({ error: 'GHL contact search failed', status: searchRes.status, detail: searchText }, 502, origin);
-  }
-
-  const searchData = JSON.parse(searchText) as { contacts?: Array<{ id: string }> };
-  if (searchData.contacts && searchData.contacts.length > 0) {
-    contactId = searchData.contacts[0].id;
-    console.log('[createTicket] found existing contact:', contactId);
-  }
-
-  // Step 2 — create contact if not found
-  if (!contactId) {
-    const createPayload = {
-      locationId: env.GHL_LOCATION_ID,
-      name:       body.userName,
-      email:      body.userEmail,
-    };
-    console.log('[createTicket] step2 creating contact:', JSON.stringify(createPayload));
-
-    const createRes  = await fetch(`${GHL_V2_BASE}/contacts/`, {
-      method:  'POST',
-      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
-      body:    JSON.stringify(createPayload),
+  // Step 1 — GHL contact search (non-fatal, for ghl_contact_id only)
+  let ghlContactId: string | null = null;
+  try {
+    const searchParams = new URLSearchParams({
+      locationId: body.locationId,
+      query:      body.userEmail,
     });
-    const createText = await createRes.text();
-    console.log('[createTicket] step2 create status:', createRes.status);
-    console.log('[createTicket] step2 create body:', createText.slice(0, 500));
-
-    if (!createRes.ok) {
-      return json({ error: 'GHL contact creation failed', status: createRes.status, detail: createText }, 502, origin);
+    const searchRes = await fetch(
+      `${GHL_V2_BASE}/contacts/?${searchParams}`,
+      { headers: ghlHeaders(env.GHL_LOCATION_TOKEN) }
+    );
+    if (searchRes.ok) {
+      const searchData = await searchRes.json() as { contacts?: Array<{ id: string }> };
+      if (searchData.contacts?.length) {
+        ghlContactId = searchData.contacts[0].id;
+        console.log('[createTicket] GHL contact found:', ghlContactId);
+      }
+    } else {
+      console.warn('[createTicket] GHL contact search failed:', searchRes.status, '— non-fatal');
     }
-
-    const createData = JSON.parse(createText) as { contact?: { id: string }; id?: string };
-    contactId = createData.contact?.id ?? createData.id ?? '';
-    console.log('[createTicket] step2 resolved contactId:', contactId);
-
-    if (!contactId) {
-      return json({ error: 'GHL contact creation returned no ID', detail: createText }, 502, origin);
-    }
+  } catch (e) {
+    console.warn('[createTicket] GHL contact search error:', e, '— non-fatal');
   }
 
-  // Step 3 — create the opportunity
-  const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
-  const oppPayload = {
-    pipelineId:      env.GHL_PIPELINE_ID,
-    locationId:      env.GHL_LOCATION_ID,
-    name:            body.title,
-    pipelineStageId: null,
-    status:          'open',
-    contactId,
-    monetaryValue:   0,
-    customFields: [
-      { key: 'lf_ticket_category', field_value: body.category ?? 'general' },
-      { key: 'lf_ticket_priority', field_value: body.priority ?? 'medium' },
-      { key: 'lf_ai_summary',      field_value: body.summary  ?? '' },
-    ],
-  };
-
-  console.log('[createTicket] step3 opportunity payload:', JSON.stringify(oppPayload));
-
-  const oppRes  = await fetch(`${GHL_V2_BASE}/opportunities/`, {
-    method:  'POST',
-    headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
-    body:    JSON.stringify(oppPayload),
-  });
-
-  console.log('[createTicket] step3 opp status:', oppRes.status);
-  const oppText = await oppRes.text();
-  console.log('[createTicket] step3 opp body:', oppText.slice(0, 500));
-
-  if (!oppRes.ok) {
-    return json({ error: 'GHL opportunity creation failed', status: oppRes.status, detail: oppText }, 502, origin);
-  }
-
-  const oppData = JSON.parse(oppText) as Record<string, unknown>;
-  console.log('[createTicket] opp response:', JSON.stringify(oppData).slice(0, 300));
-  const oppInner = (oppData.opportunity ?? oppData) as Record<string, unknown>;
-  const ghlOpportunityId = (oppInner?.id ?? null) as string | null;
-  console.log('[createTicket] real GHL opp ID:', ghlOpportunityId);
-  if (!ghlOpportunityId) {
-    console.error('[createTicket] no GHL opportunity ID in response — using fallback');
-    return json({ ticketId: internalId, ghlOpportunityId: internalId }, 201, origin);
-  }
-
-  // Notify agent via GHL SMS (fire-and-forget — never fail the ticket creation)
-  const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
-  if (agentContactId) {
-    const notifyPayload = {
-      type:      'SMS',
-      contactId: agentContactId,
-      message:   `New support ticket: ${body.title}\nCategory: ${body.category ?? 'general'}\nPriority: ${body.priority ?? 'medium'}\nSummary: ${body.summary ?? ''}`,
-    };
-    fetch(`${GHL_V2_BASE}/conversations/messages`, {
-      method:  'POST',
-      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
-      body:    JSON.stringify(notifyPayload),
-    })
-      .then(r => console.log('[notify] agent notification sent, status:', r.status))
-      .catch(e => console.error('[notify] agent notification error:', e instanceof Error ? e.message : String(e)));
-  } else {
-    console.log('[notify] GHL_AGENT_CONTACT_ID not set — skipping agent notification');
-  }
-
-  // Insert to support_tickets in Supabase — awaited for error visibility, non-fatal
+  // Step 2 — Calculate SLA deadline
   const SLA_HOURS: Record<string, number> = { urgent: 2, high: 4, medium: 24, low: 72 };
   const slaDeadline = new Date(
     Date.now() + (SLA_HOURS[body.priority ?? 'medium'] ?? 24) * 3600000
   ).toISOString();
 
+  // Step 3 — Insert to Supabase
+  const internalId = `T-${Date.now().toString(36).toUpperCase()}`;
+
   const ticketRow = {
-    id:                 internalId,
-    ghl_opportunity_id: ghlOpportunityId,
-    location_id:        env.GHL_LOCATION_ID,
-    status:             'new',
-    title:              body.title ?? null,
-    contact_name:       body.userName ?? null,
-    priority:           body.priority ?? 'medium',
-    category:           body.category ?? 'general',
-    summary:            body.summary ?? null,
-    source:             (body.source ?? 'chat').toLowerCase(),
-    sla_deadline:       slaDeadline,
-    updated_at:         new Date().toISOString(),
+    id:             internalId,
+    user_id:        body.userId ?? null,
+    location_id:    body.locationId,
+    status:         'new',
+    title:          body.title ?? null,
+    contact_name:   body.userName ?? null,
+    contact_email:  body.userEmail ?? null,
+    priority:       body.priority ?? 'medium',
+    category:       body.category ?? 'general',
+    summary:        body.summary ?? null,
+    source:         (body.source ?? 'chat').toLowerCase(),
+    sla_deadline:   slaDeadline,
+    ghl_contact_id: ghlContactId,
+    updated_at:     new Date().toISOString(),
   };
-  const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/support_tickets`, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      'Prefer':        'return=minimal',
-    },
-    body: JSON.stringify(ticketRow),
-  });
+
+  const insertRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_tickets`,
+    {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify(ticketRow),
+    }
+  );
+
   if (!insertRes.ok) {
     const detail = await insertRes.text();
-    console.error('[support_tickets] insert failed:', insertRes.status, detail);
-    // Non-fatal — ticket was created in GHL, log and continue
-  } else {
-    console.log('[support_tickets] inserted:', internalId, ghlOpportunityId);
+    console.error('[createTicket] Supabase insert failed:', insertRes.status, detail);
+    return json({ error: 'ticket creation failed', detail }, 502, origin);
   }
 
-  return json({ ticketId: internalId, ghlOpportunityId }, 201, origin);
+  console.log('[createTicket] created in Supabase:', internalId);
+
+  // Notify agent via GHL SMS (fire-and-forget — never blocks)
+  const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
+  if (agentContactId) {
+    fetch(`${GHL_V2_BASE}/conversations/messages`, {
+      method:  'POST',
+      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+      body:    JSON.stringify({
+        type:      'SMS',
+        contactId: agentContactId,
+        message:   `New support ticket: ${body.title}\n` +
+                   `Category: ${body.category ?? 'general'}\n` +
+                   `Priority: ${body.priority ?? 'medium'}\n` +
+                   `Summary: ${body.summary ?? ''}`,
+      }),
+    })
+      .then(r => console.log('[notify] agent SMS sent:', r.status))
+      .catch(e => console.warn('[notify] agent SMS failed:', e));
+  }
+
+  return json({ ticketId: internalId }, 201, origin);
 }
 
 // PATCH /ghl/tickets/:id/status
@@ -1187,6 +1128,59 @@ export default {
 
     if (method === 'POST' && path === '/kb/save') {
       return saveKnowledgeBase(req, env, origin);
+    }
+
+    // GET /support/tickets/mine?userId=xxx&locationId=xxx
+    if (method === 'GET' && path === '/support/tickets/mine') {
+      const mineUserId     = url.searchParams.get('userId');
+      const mineLocationId = url.searchParams.get('locationId');
+
+      if (!mineUserId || !mineLocationId) {
+        return json({ error: 'userId and locationId required' }, 400, origin);
+      }
+
+      const mineRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets` +
+        `?user_id=eq.${encodeURIComponent(mineUserId)}` +
+        `&location_id=eq.${encodeURIComponent(mineLocationId)}` +
+        `&source=eq.chat` +
+        `&order=updated_at.desc` +
+        `&select=id,status,title,updated_at,priority,category`,
+        {
+          headers: {
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        }
+      );
+
+      if (!mineRes.ok) {
+        const detail = await mineRes.text();
+        console.error('[mine] fetch failed:', mineRes.status, detail);
+        return json({ error: 'failed to fetch user tickets', detail }, 502, origin);
+      }
+
+      const mineRows = await mineRes.json() as Array<{
+        id: string; status: string; title: string;
+        updated_at: string; priority: string; category: string;
+      }>;
+
+      const OPEN_STAGES     = new Set(['new', 'triaged', 'in_progress']);
+      const WAITING_STAGES  = new Set(['waiting_client', 'waiting_internal', 'escalated']);
+      const RESOLVED_STAGES = new Set(['resolved', 'closed']);
+
+      const grouped = {
+        open:     mineRows.filter(r => OPEN_STAGES.has(r.status)),
+        waiting:  mineRows.filter(r => WAITING_STAGES.has(r.status)),
+        resolved: mineRows.filter(r => RESOLVED_STAGES.has(r.status)),
+      };
+
+      console.log('[mine] userId:', mineUserId,
+        '| open:', grouped.open.length,
+        '| waiting:', grouped.waiting.length,
+        '| resolved:', grouped.resolved.length);
+
+      return json(grouped, 200, origin);
     }
 
     // GET /support/tickets/:id — return full support_tickets row by ghl_opportunity_id

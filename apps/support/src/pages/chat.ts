@@ -363,8 +363,8 @@ async function createTicketFromIntake() {
       let rekeyId: string;
       try {
         newTicket = await createTicket(params);
-        // Use the real GHL opportunity ID for message storage — never the fallback
-        rekeyId = newTicket.ghlOpportunityId ?? newTicket.id;
+        // Use the ticket ID for message storage
+        rekeyId = newTicket.id;
         console.log('[intake] GHL ticket created, rekeying to:', rekeyId);
       } catch (ghlErr) {
         // GHL failed — generate local fallback so conversation can continue
@@ -382,7 +382,7 @@ async function createTicketFromIntake() {
       }
 
       // Await rekey so messages are under the correct ID before thread mode starts
-      const realId = newTicket.ghlOpportunityId as string;
+      const realId = newTicket.id;
       if (intakeTempTicketId && realId) {
         try {
           await rekeyMessages(intakeTempTicketId, realId, currentLocationId);
