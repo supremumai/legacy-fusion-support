@@ -408,7 +408,12 @@ async function loadWorkspace(ticket: any) {
       const msgs = await getMessages(ticket.ghlOpportunityId ?? ticket.id, currentLocationId);
       if (activeTicketId !== ticket.id) return; // ticket changed while fetching
       if (msgs.length === 0) {
-        thread.innerHTML = '<div style="padding:16px;opacity:0.5;text-align:center;">No messages yet for this ticket.</div>';
+        const isManual = ticket.source && ticket.source !== 'chat';
+        if (isManual) {
+          thread.innerHTML = renderManualTicketCard(ticket);
+        } else {
+          thread.innerHTML = '<div style="padding:16px;opacity:0.5;text-align:center;">No messages yet for this ticket.</div>';
+        }
       } else {
         renderWsThread(msgs);
       }
@@ -1051,6 +1056,53 @@ function rerenderColumn(stageKey: string) {
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
+function renderManualTicketCard(ticket: any): string {
+  const row = (label: string, value: string | null | undefined) =>
+    value ? `
+      <div class="info-card-row">
+        <span class="info-card-label">${label}</span>
+        <span class="info-card-value">${value}</span>
+      </div>` : '';
+
+  const PRIORITY_COLORS: Record<string, string> = {
+    urgent: '#f87171', high: '#FDA929',
+    medium: '#00e5ff', low: '#8fa4b5',
+  };
+  const pColor = PRIORITY_COLORS[ticket.priority] ?? '#8fa4b5';
+
+  return `
+    <div class="manual-ticket-card">
+      <div class="manual-ticket-card-header">
+        <span class="manual-ticket-badge">Manual Ticket</span>
+        <span class="manual-ticket-source">via ${ticket.source ?? 'manual'}</span>
+      </div>
+
+      <div class="info-card-section-label">Contact Information</div>
+      <div class="info-card-rows">
+        ${row('Name',     ticket.contactName)}
+        ${row('Email',    ticket.contactEmail)}
+        ${row('Phone',    ticket.contactPhone)}
+        ${row('Business', ticket.businessName)}
+        ${row('Plan',     ticket.plan)}
+      </div>
+
+      <div class="info-card-section-label">Ticket Details</div>
+      <div class="info-card-rows">
+        ${row('Category', ticket.category)}
+        <div class="info-card-row">
+          <span class="info-card-label">Priority</span>
+          <span class="info-card-value" style="color:${pColor};font-weight:600">${ticket.priority ?? '—'}</span>
+        </div>
+        ${row('Assigned To', ticket.assignedTo)}
+      </div>
+
+      ${ticket.summary ? `
+      <div class="info-card-section-label">Description</div>
+      <div class="info-card-description">${ticket.summary}</div>
+      ` : ''}
+    </div>`;
+}
+
 async function fetchAgentList() {
   try {
     agentList = await getUsers();
@@ -1222,6 +1274,17 @@ async function fetchAgentList() {
 
     (window as any).closeNewTicketModal();
     showToast(`Ticket ${result.ticketId} created`);
+
+    try {
+      const fresh = await listTickets({ locationId: currentLocationId, limit: 50 });
+      liveTickets.length = 0;
+      liveTickets.push(...fresh);
+      applyStageMap();
+      renderTicketList(liveTickets);
+      updateCounts(liveTickets);
+    } catch (refreshErr) {
+      console.warn('[newTicket] queue refresh failed:', refreshErr);
+    }
 
   } catch (err: any) {
     console.error('[newTicket] failed:', err);
