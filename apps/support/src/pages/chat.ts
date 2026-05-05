@@ -1,7 +1,7 @@
 // Static imports — Vite compiles these to .js bundles with correct MIME types
 import { sendMagicLink, signOut, subscribeToTicket, addMessage, getMessages, rekeyMessages } from '../services/supabase';
 import { continueConversation, triageConversation } from '../services/legacyzero';
-import { createTicket, listTickets } from '../services/ghl';
+import { createTicket, listTickets, fetchMyTickets, MyTicketItem, MyTicketsGroup } from '../services/ghl';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -53,6 +53,7 @@ const DEMO_DATA: {
 let activeTicketId: string | null = null;
 let activeChannel: any = null;
 let liveTickets: any[] = [];
+let myTicketsCache: MyTicketItem[] = [];
 const renderedMsgIds = new Set<string>();
 
 // ---------------------------------------------------------------------------
@@ -183,6 +184,83 @@ function renderSidebar(tickets: any[]) {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// My Tickets sidebar — Supabase-backed, grouped Open/Waiting/Resolved
+// ---------------------------------------------------------------------------
+function renderMyTicketsSidebar(grouped: MyTicketsGroup): void {
+  const STATUS_LABELS: Record<string, string> = {
+    new:              'New',
+    triaged:          'Triaged',
+    in_progress:      'In Progress',
+    waiting_client:   'Waiting',
+    waiting_internal: 'Waiting',
+    escalated:        'Escalated',
+    resolved:         'Resolved',
+    closed:           'Closed',
+  };
+  const STATUS_COLORS: Record<string, string> = {
+    new:              '#06b6d4',
+    triaged:          '#a78bfa',
+    in_progress:      '#3b82f6',
+    waiting_client:   '#f59e0b',
+    waiting_internal: '#f97316',
+    escalated:        '#ef4444',
+    resolved:         '#22c55e',
+    closed:           '#6b7280',
+  };
+
+  const renderItem = (t: MyTicketItem): string => {
+    const truncTitle = t.title.length > 34 ? t.title.slice(0, 34) + '…' : t.title;
+    const color      = STATUS_COLORS[t.status] ?? '#8fa4b5';
+    const label      = STATUS_LABELS[t.status] ?? t.status;
+    return `
+      <button class="sidebar-ticket-item" data-ticket-id="${t.id}"
+        onclick="window.handleSidebarTicketClick('${t.id}')">
+        <div class="sidebar-ticket-row">
+          <span class="sidebar-ticket-title">${truncTitle}</span>
+          <span class="sidebar-ticket-badge" style="color:${color}">${label}</span>
+        </div>
+        <span class="sidebar-ticket-time">${timeAgo(t.updated_at)}</span>
+      </button>`;
+  };
+
+  const inject = (id: string, items: MyTicketItem[]) => {
+    const container = document.getElementById(id);
+    if (!container) { console.warn('[chat] sidebar container not found:', id); return; }
+    // Keep the existing label element, replace the rest
+    const labelEl = container.querySelector('.sidebar-group-label');
+    container.innerHTML = '';
+    if (labelEl) container.appendChild(labelEl);
+    const itemsHtml = items.length
+      ? items.map(renderItem).join('')
+      : '<div class="sidebar-empty">No tickets</div>';
+    container.insertAdjacentHTML('beforeend', itemsHtml);
+  };
+
+  inject('sidebar-open',     grouped.open);
+  inject('sidebar-waiting',  grouped.waiting);
+  inject('sidebar-resolved', grouped.resolved);
+}
+
+async function loadMyTickets(): Promise<void> {
+  if (IS_DEMO || !currentUserId || !currentLocationId) return;
+  try {
+    const grouped = await fetchMyTickets(currentUserId, currentLocationId);
+    myTicketsCache = [...grouped.open, ...grouped.waiting, ...grouped.resolved];
+    renderMyTicketsSidebar(grouped);
+  } catch (err) {
+    console.warn('[chat] loadMyTickets failed:', err);
+  }
+}
+
+(window as any).handleSidebarTicketClick = async function (ticketId: string): Promise<void> {
+  const ticket = myTicketsCache.find(t => t.id === ticketId);
+  if (!ticket) { console.warn('[chat] ticket not found in cache:', ticketId); return; }
+  document.querySelectorAll('.sidebar-ticket-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.sidebar-ticket-item[data-ticket-id="${ticketId}"]`)?.classList.add('active');
+  await loadTicket(ticket);
+};
 
 function renderThread(messages: any[]) {
   const thread = document.getElementById('messageThread')!;
@@ -410,6 +488,8 @@ async function createTicketFromIntake() {
   if (!IS_DEMO) liveTickets = [newTicket, ...liveTickets.filter(t => t.id !== newTicket.id)];
   renderSidebar(IS_DEMO ? DEMO_DATA.tickets : liveTickets);
   await loadTicket(newTicket);
+  // Refresh My Tickets sidebar to include new ticket
+  loadMyTickets().catch(err => console.warn('[chat] loadMyTickets refresh failed:', err));
   document.getElementById('intakeThread')?.remove();
 }
 
@@ -519,6 +599,8 @@ async function init() {
     renderSidebar(liveTickets);
     const first = liveTickets.find((t: any) => statusGroup(t.status) === 'open');
     if (first) await loadTicket(first);
+    // Load real My Tickets from Supabase
+    await loadMyTickets();
   }
 }
 
