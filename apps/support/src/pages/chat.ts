@@ -549,6 +549,35 @@ function appendThreadBubble(role: string, content: string, msgId: string | null 
 }
 
 // ---------------------------------------------------------------------------
+// New Chat — reset intake state and return to welcome screen
+// ---------------------------------------------------------------------------
+(window as any).startNewChat = function (): void {
+  // Reset intake state
+  intakeMessages = [];
+  aiResponseCount = 0;
+  intakeTempTicketId = '';
+  activeTicketId = null;
+
+  // Clear existing intake thread if present
+  document.getElementById('intakeThread')?.remove();
+
+  // Clear the welcome input
+  const welcomeInput = document.getElementById('welcomeInput') as HTMLTextAreaElement | null;
+  if (welcomeInput) welcomeInput.value = '';
+
+  // Switch to welcome/intake state
+  document.getElementById('welcomeState')!.classList.remove('hidden');
+  document.getElementById('threadState')!.classList.add('hidden');
+
+  // Remove active state from all sidebar items
+  document.querySelectorAll('.sidebar-ticket-row, .sidebar-ticket-item')
+    .forEach(el => el.classList.remove('active'));
+
+  // Focus the input
+  document.getElementById('welcomeInput')?.focus();
+};
+
+// ---------------------------------------------------------------------------
 // Event listeners
 // ---------------------------------------------------------------------------
 document.querySelectorAll('.quick-pill').forEach(pill => {

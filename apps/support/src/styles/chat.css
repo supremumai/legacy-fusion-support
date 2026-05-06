@@ -605,3 +605,28 @@
   padding: 4px 8px;
   font-style: italic;
 }
+
+/* ---------------------------------------------------------------------------
+   New Chat button
+   --------------------------------------------------------------------------- */
+.new-chat-btn {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 12px 12px 8px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(6,182,212,0.4);
+  background: rgba(6,182,212,0.08);
+  color: #06b6d4;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.new-chat-btn:hover {
+  background: rgba(6,182,212,0.15);
+  border-color: rgba(6,182,212,0.7);
+}
