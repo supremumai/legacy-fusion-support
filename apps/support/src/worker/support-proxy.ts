@@ -993,66 +993,6 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
   return json({ received: true, handled: true, opportunityId, newStatus }, 200, '');
 }
 
-// ---------------------------------------------------------------------------
-// GET /support/tickets?locationId=xxx&limit=50
-async function handleGetTickets(request: Request, env: Env, origin: string): Promise<Response> {
-  const url = new URL(request.url);
-  const locationId = url.searchParams.get('locationId');
-  const limit = url.searchParams.get('limit') ?? '50';
-
-  if (!locationId) return json({ error: 'locationId required' }, 400, origin);
-
-  const res = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/support_tickets?location_id=eq.${encodeURIComponent(locationId)}&order=updated_at.desc&limit=${limit}`,
-    {
-      headers: {
-        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Accept':        'application/json',
-      },
-    }
-  );
-
-  if (!res.ok) {
-    const detail = await res.text();
-    console.error('[getTickets] Supabase failed:', res.status, detail);
-    return json({ error: 'failed to fetch tickets', detail }, 502, origin);
-  }
-
-  const rows = await res.json() as any[];
-
-  const tickets = rows.map((row: any) => ({
-    id:               row.id,
-    ghlOpportunityId: row.ghl_opportunity_id ?? row.id,
-    ghlContactId:     row.ghl_contact_id ?? null,
-    title:            row.title ?? 'Untitled',
-    status:           row.status ?? 'new',
-    priority:         row.priority ?? 'medium',
-    category:         row.category ?? 'general',
-    contactName:      row.contact_name ?? 'Unknown',
-    contactEmail:     row.contact_email ?? null,
-    contactPhone:     row.contact_phone ?? null,
-    businessName:     row.business_name ?? null,
-    source:           row.source ?? 'chat',
-    assignedTo:       row.assigned_to ?? null,
-    plan:             row.plan ?? null,
-    summary:          row.summary ?? null,
-    slaDeadline:      row.sla_deadline ?? null,
-    createdAt:        row.created_at ?? row.updated_at,
-    updatedAt:        row.updated_at,
-    aiSummary: {
-      problem:         row.summary ?? '',
-      category:        row.category ?? 'general',
-      priority:        row.priority ?? 'medium',
-      suggestedAction: '',
-      generatedAt:     new Date(row.updated_at),
-    },
-  }));
-
-  console.log('[getTickets] returning', tickets.length, 'tickets for location:', locationId);
-  return json(tickets, 200, origin);
-}
-
 // POST /support/tickets — manual ticket creation from control panel
 // ---------------------------------------------------------------------------
 async function handleCreateManualTicket(
@@ -1273,10 +1213,6 @@ export default {
         '| resolved:', grouped.resolved.length);
 
       return json(grouped, 200, origin);
-    }
-
-    if (method === 'GET' && path === '/support/tickets') {
-      return handleGetTickets(req, env, origin);
     }
 
     // GET /support/tickets/:id — return full support_tickets row by ghl_opportunity_id
