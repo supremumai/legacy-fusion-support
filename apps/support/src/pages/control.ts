@@ -199,6 +199,14 @@ function updateCounts(tickets: any[]) {
   const manualEl = document.getElementById('count-source-manual');
   if (chatEl) chatEl.textContent = String(chatCount);
   if (manualEl) manualEl.textContent = String(manualCount);
+
+  // Dynamic account counts
+  const accounts = [...new Set(tickets.map((t: any) => t.accountName).filter((n: string) => n && n !== '—'))];
+  accounts.forEach(account => {
+    const count = tickets.filter((t: any) => t.accountName === account).length;
+    const el = document.getElementById(`count-account-${(account as string).replace(/\s+/g, '-')}`);
+    if (el) el.textContent = String(count);
+  });
 }
 
 function filterTickets(tickets: any[]) {
@@ -217,6 +225,9 @@ function filterTickets(tickets: any[]) {
         return t.source === 'chat' || !t.source;
       }
       return t.source === activeFilter.value;
+    }
+    if (activeFilter.type === 'account') {
+      return t.accountName === activeFilter.value;
     }
     return true;
   });
@@ -246,6 +257,7 @@ function renderTicketList(tickets?: any[]) {
       <div class="ticket-row-snippet">${ticket.title}</div>
       <div class="ticket-row-bottom">
         <span class="badge-pill badge-cyan ticket-cat-badge">${category}</span>
+        ${ticket.accountName && ticket.accountName !== '—' ? `<span class="account-badge">${ticket.accountName}</span>` : ''}
         <span class="sla-timer ${urgent ? 'sla-urgent' : ''}">${ticket.slaDeadline ? slaLabel(ticket.slaDeadline) : '—'}</span>
       </div>
     `;
@@ -476,6 +488,46 @@ document.querySelectorAll('.queue-item').forEach(item => {
     renderTicketList(liveTickets);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Account filter — dynamic, built after fetchLiveTickets populates liveTickets
+// ---------------------------------------------------------------------------
+function renderAccountFilters() {
+  const accounts = [...new Set(
+    liveTickets.map((t: any) => t.accountName).filter((n: string) => n && n !== '—')
+  )] as string[];
+
+  // Find or create account filter section in queue panel
+  let section = document.getElementById('account-filter-section');
+  if (!section) {
+    section = document.createElement('div');
+    section.id = 'account-filter-section';
+    section.className = 'queue-section';
+    const label = document.createElement('div');
+    label.className = 'queue-section-label';
+    label.textContent = 'ACCOUNT';
+    section.appendChild(label);
+    document.querySelector('.queue-panel')?.appendChild(section);
+  }
+
+  // Remove old account buttons (keep the label)
+  section.querySelectorAll('.queue-item[data-filter="account"]').forEach(el => el.remove());
+
+  accounts.forEach(account => {
+    const btn = document.createElement('button');
+    btn.className = 'queue-item';
+    btn.dataset['filter'] = 'account';
+    btn.dataset['value'] = account;
+    btn.innerHTML = `${account}<span class="queue-count" id="count-account-${account.replace(/\s+/g, '-')}">0</span>`;
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
+      btn.classList.add('active');
+      activeFilter = { type: 'account', value: account };
+      renderTicketList(liveTickets);
+    });
+    section.appendChild(btn);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Input area
@@ -749,13 +801,14 @@ async function fetchLiveTickets() {
 
   showTicketListLoading();
   try {
-    const tickets = await listTickets({ locationId: currentLocationId, limit: 50 });
+    const tickets = await listTickets({ limit: 50 });
     liveTickets = tickets;
     updateCounts(liveTickets);
     // Activate unassigned filter in the queue UI
     document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
     document.querySelector('.queue-item[data-filter="unassigned"][data-value="unassigned"]')?.classList.add('active');
     renderTicketList(liveTickets);
+    renderAccountFilters();
     // Open first unassigned ticket, fallback to first ticket overall
     const first = liveTickets.find((t: any) => !t.assignedTo) ?? liveTickets[0];
     if (first) await loadWorkspace(first);
@@ -773,7 +826,7 @@ let refreshInterval: ReturnType<typeof setInterval> | null = null;
 async function silentRefresh() {
   if (IS_DEMO) return;
   try {
-    const fresh = await listTickets({ locationId: currentLocationId, limit: 50 });
+    const fresh = await listTickets({ limit: 50 });
     const prevIds = new Set(liveTickets.map((t: any) => t.id));
     const newIds   = new Set(fresh.map((t: any) => t.id));
 
@@ -781,14 +834,7 @@ async function silentRefresh() {
     const addedIds = [...newIds].filter(id => !prevIds.has(id));
 
     // Always update liveTickets — source of truth is Supabase
-    const hasChanges = fresh.length !== liveTickets.length ||
-      addedIds.length > 0 ||
-      fresh.some((t: any) => {
-        const existing = liveTickets.find((e: any) => e.id === t.id);
-        return !existing;
-      });
-
-    liveTickets = fresh; // always replace — never keep stale data
+    liveTickets = fresh;
     updateCounts(liveTickets);
 
     if (currentView === 'pipeline') {
@@ -796,6 +842,7 @@ async function silentRefresh() {
       renderPipelineBoard();
     } else {
       renderTicketList(liveTickets);
+      renderAccountFilters();
     }
 
     // Flash only genuinely new tickets

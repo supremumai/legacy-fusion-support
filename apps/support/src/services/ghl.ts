@@ -248,7 +248,7 @@ export interface ListTicketsFilters {
   limit?:      number;
 }
 
-export async function listTickets(filters: ListTicketsFilters = {}): Promise<Ticket[]> {
+export async function listTickets(filters: Partial<ListTicketsFilters> = {}): Promise<Ticket[]> {
   if (DEMO_MODE) {
     let tickets = DEMO_DATA.tickets;
     if (filters.status) {
@@ -261,11 +261,22 @@ export async function listTickets(filters: ListTicketsFilters = {}): Promise<Tic
   }
 
   const params = new URLSearchParams();
-  if (filters.locationId) params.set('locationId', filters.locationId);
   if (filters.limit != null) params.set('limit', String(filters.limit));
 
-  const query = params.toString() ? `?${params}` : '';
-  return workerFetch<Ticket[]>(`/support/tickets${query}`);
+  try {
+    const res = await fetch(
+      `${WORKER_URL}/support/tickets${params.toString() ? '?' + params.toString() : ''}`,
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+    if (!res.ok) {
+      console.error('[listTickets] failed:', res.status);
+      return [];
+    }
+    return res.json() as Promise<Ticket[]>;
+  } catch (err) {
+    console.error('[listTickets] error:', err);
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------

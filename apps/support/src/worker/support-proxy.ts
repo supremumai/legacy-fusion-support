@@ -435,6 +435,98 @@ async function saveKnowledgeBase(req: Request, env: Env, origin: string): Promis
   return json({ success: true }, 201, origin);
 }
 
+// GET /support/tickets — fetch ALL tickets across all locations from Supabase
+async function handleGetTickets(
+  request: Request, env: Env, origin: string
+): Promise<Response> {
+  const url = new URL(request.url)
+  const limit = Math.min(
+    parseInt(url.searchParams.get('limit') ?? '50', 10),
+    100
+  )
+
+  // Fetch ALL tickets across all locations — no location filter
+  const res = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_tickets?order=updated_at.desc&limit=${limit}&select=*`,
+    {
+      headers: {
+        'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Accept': 'application/json'
+      }
+    }
+  )
+
+  if (!res.ok) {
+    const detail = await res.text()
+    return json({ error: 'failed to fetch tickets', detail }, 502, origin)
+  }
+
+  const rows = await res.json() as any[]
+
+  // Get unique location_ids from the result
+  const locationIds = [...new Set(
+    rows.map((r: any) => r.location_id).filter(Boolean)
+  )] as string[]
+
+  // Fetch location names from GHL in parallel (non-fatal per location)
+  const locationNames: Record<string, string> = {}
+  await Promise.all(
+    locationIds.map(async (locId) => {
+      try {
+        const locRes = await fetch(
+          `${GHL_V2_BASE}/locations/${locId}`,
+          { headers: ghlHeaders(env.GHL_LOCATION_TOKEN) }
+        )
+        if (locRes.ok) {
+          const locData = await locRes.json() as any
+          const name = locData.location?.name ?? locData.name ?? null
+          if (name) locationNames[locId] = name
+          console.log('[getTickets] location:', locId, '→', name)
+        } else {
+          console.warn('[getTickets] location fetch failed:', locId, locRes.status)
+        }
+      } catch (e) {
+        console.warn('[getTickets] location fetch error:', locId, e)
+      }
+    })
+  )
+
+  // Map rows to Ticket shape with accountName
+  const tickets = rows.map((row: any) => ({
+    id: row.id,
+    ghlOpportunityId: row.ghl_opportunity_id ?? row.id,
+    ghlContactId: row.ghl_contact_id ?? null,
+    title: row.title ?? 'Untitled',
+    status: row.status ?? 'new',
+    priority: row.priority ?? 'medium',
+    category: row.category ?? 'general',
+    contactName: row.contact_name ?? 'Unknown',
+    contactEmail: row.contact_email ?? null,
+    contactPhone: row.contact_phone ?? null,
+    businessName: row.business_name ?? null,
+    source: row.source ?? 'chat',
+    assignedTo: row.assigned_to ?? null,
+    plan: row.plan ?? null,
+    summary: row.summary ?? null,
+    slaDeadline: row.sla_deadline ?? null,
+    locationId: row.location_id ?? null,
+    accountName: locationNames[row.location_id] ?? row.location_id ?? '—',
+    createdAt: row.updated_at,
+    updatedAt: row.updated_at,
+    aiSummary: {
+      problem: row.summary ?? '',
+      category: row.category ?? 'general',
+      priority: row.priority ?? 'medium',
+      suggestedAction: '',
+      generatedAt: new Date(row.updated_at)
+    }
+  }))
+
+  console.log('[getTickets] returning', tickets.length, 'tickets from', locationIds.length, 'locations')
+  return json(tickets, 200, origin)
+}
+
 // GET /ghl/tickets/:id
 async function getTicket(
   ghlOpportunityId: string,
@@ -1181,6 +1273,10 @@ export default {
         '| resolved:', grouped.resolved.length);
 
       return json(grouped, 200, origin);
+    }
+
+    if (method === 'GET' && path === '/support/tickets') {
+      return handleGetTickets(req, env, origin);
     }
 
     // GET /support/tickets/:id — return full support_tickets row by ghl_opportunity_id

@@ -1340,3 +1340,17 @@
   line-height: 1.6;
   white-space: pre-wrap;
 }
+
+/* ---------------------------------------------------------------------------
+   Account badge — ticket row
+   --------------------------------------------------------------------------- */
+.account-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(167, 139, 250, 0.12);
+  color: #a78bfa;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
