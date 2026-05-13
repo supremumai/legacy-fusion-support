@@ -227,7 +227,7 @@ function renderMyTicketsSidebar(grouped: MyTicketsGroup): void {
 
   const inject = (id: string, items: MyTicketItem[]) => {
     const container = document.getElementById(id);
-    if (!container) { console.warn('[chat] sidebar container not found:', id); return; }
+    if (!container) { console.warn('[renderMyTicketsSidebar] container not found:', id); return; }
     // Keep the existing label element, replace the rest
     const labelEl = container.querySelector('.sidebar-group-label');
     container.innerHTML = '';
@@ -244,9 +244,14 @@ function renderMyTicketsSidebar(grouped: MyTicketsGroup): void {
 }
 
 async function loadMyTickets(): Promise<void> {
-  if (IS_DEMO || !currentUserId || !currentLocationId) return;
+  console.log('[loadMyTickets] called — userId:', currentUserId, '| locationId:', currentLocationId, '| IS_DEMO:', IS_DEMO);
+  if (IS_DEMO || !currentUserId || !currentLocationId) {
+    console.warn('[loadMyTickets] skipping — missing params or IS_DEMO');
+    return;
+  }
   try {
     const grouped = await fetchMyTickets(currentUserId, currentLocationId);
+    console.log('[loadMyTickets] grouped —', grouped.open.length, 'open,', grouped.waiting.length, 'waiting,', grouped.resolved.length, 'resolved');
     myTicketsCache = [...grouped.open, ...grouped.waiting, ...grouped.resolved];
     renderMyTicketsSidebar(grouped);
   } catch (err) {
