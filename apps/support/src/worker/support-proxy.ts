@@ -476,7 +476,7 @@ async function handleGetTickets(
       try {
         const locRes = await fetch(
           `${GHL_V2_BASE}/locations/${locId}`,
-          { headers: ghlHeaders(env.GHL_LOCATION_TOKEN) }
+          { headers: ghlHeaders(env.GHL_AGENCY_TOKEN) }
         )
         if (locRes.ok) {
           const locData = await locRes.json() as any
