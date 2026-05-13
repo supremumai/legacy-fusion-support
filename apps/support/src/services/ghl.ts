@@ -207,7 +207,7 @@ export async function fetchMyTickets(
   locationId: string
 ): Promise<MyTicketsGroup> {
   const empty: MyTicketsGroup = { open: [], waiting: [], resolved: [] };
-  if (IS_DEMO) return empty;
+  if (!userId || !locationId || userId === 'user-legacy' || locationId === 'location-demo') return empty;
   try {
     const res = await workerFetch<MyTicketsGroup>(
       `/support/tickets/mine` +
