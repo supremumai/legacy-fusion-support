@@ -617,18 +617,15 @@ async function init() {
     const first = liveTickets.find((t: any) => statusGroup(t.status) === 'open');
     if (first) await loadTicket(first);
   } else {
-    // Load customer's real tickets from GHL
+    // Load tickets for intake cache — My Tickets sidebar is source of truth (loadMyTickets)
     try {
-      liveTickets = await listTickets({ locationId: currentLocationId, contactId: currentUserId });
-      console.log('[init] loaded', liveTickets.length, 'tickets for contact:', currentUserId);
+      liveTickets = await listTickets({ limit: 50 });
+      console.log('[init] loaded', liveTickets.length, 'tickets');
     } catch (e) {
       console.warn('[init] failed to load tickets:', e);
       liveTickets = [];
     }
-    renderSidebar(liveTickets);
-    const first = liveTickets.find((t: any) => statusGroup(t.status) === 'open');
-    if (first) await loadTicket(first);
-    // Load real My Tickets from Supabase
+    // Do not call renderSidebar or auto-open a ticket — user picks from My Tickets sidebar
     await loadMyTickets();
   }
 }
