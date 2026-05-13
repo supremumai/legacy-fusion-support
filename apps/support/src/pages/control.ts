@@ -24,6 +24,7 @@ let agentList: GHLUser[] = [];
 let newTicketModalOpen = false;
 let currentView: '3panel' | 'pipeline' = '3panel';
 let stageMap: Record<string, string> = {};
+let accountDropdownOpen = false;
 
 // ---------------------------------------------------------------------------
 // Demo seed data
@@ -200,13 +201,6 @@ function updateCounts(tickets: any[]) {
   if (chatEl) chatEl.textContent = String(chatCount);
   if (manualEl) manualEl.textContent = String(manualCount);
 
-  // Dynamic account counts
-  const accounts = [...new Set(tickets.map((t: any) => t.accountName).filter((n: string) => n && n !== '—'))];
-  accounts.forEach(account => {
-    const count = tickets.filter((t: any) => t.accountName === account).length;
-    const el = document.getElementById(`count-account-${(account as string).replace(/\s+/g, '-')}`);
-    if (el) el.textContent = String(count);
-  });
 }
 
 function filterTickets(tickets: any[]) {
@@ -490,13 +484,9 @@ document.querySelectorAll('.queue-item').forEach(item => {
 });
 
 // ---------------------------------------------------------------------------
-// Account filter — dynamic, built after fetchLiveTickets populates liveTickets
+// Account filter — dynamic dropdown, built after fetchLiveTickets populates liveTickets
 // ---------------------------------------------------------------------------
-function renderAccountFilters() {
-  const accounts = [...new Set(
-    liveTickets.map((t: any) => t.accountName).filter((n: string) => n && n !== '—')
-  )] as string[];
-
+function renderAccountFilters(): void {
   // Find or create account filter section in queue panel
   let section = document.getElementById('account-filter-section');
   if (!section) {
@@ -510,24 +500,84 @@ function renderAccountFilters() {
     document.querySelector('.queue-panel')?.appendChild(section);
   }
 
-  // Remove old account buttons (keep the label)
-  section.querySelectorAll('.queue-item[data-filter="account"]').forEach(el => el.remove());
+  // Only show accounts that have tickets
+  const accounts = [...new Set(
+    liveTickets
+      .map((t: any) => t.accountName)
+      .filter((n: string) => n && n !== '—')
+  )] as string[];
 
-  accounts.forEach(account => {
-    const btn = document.createElement('button');
-    btn.className = 'queue-item';
-    btn.dataset['filter'] = 'account';
-    btn.dataset['value'] = account;
-    btn.innerHTML = `${account}<span class="queue-count" id="count-account-${account.replace(/\s+/g, '-')}">0</span>`;
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
-      btn.classList.add('active');
-      activeFilter = { type: 'account', value: account };
-      renderTicketList(liveTickets);
-    });
-    section.appendChild(btn);
-  });
+  // Remove old dropdown (keep the label)
+  section.querySelector('.account-dropdown')?.remove();
+
+  if (accounts.length === 0) return;
+
+  // Get currently selected account
+  const selectedAccount = activeFilter?.type === 'account'
+    ? activeFilter.value as string
+    : null;
+
+  const displayLabel = selectedAccount ?? 'All Accounts';
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = `
+    <div class="account-dropdown" id="accountDropdown">
+      <button class="account-dropdown-trigger${selectedAccount ? ' active' : ''}"
+              onclick="window.toggleAccountDropdown()">
+        <span class="account-dropdown-label">${displayLabel}</span>
+        <span class="account-dropdown-chevron">▾</span>
+      </button>
+      <div class="account-dropdown-menu hidden" id="accountDropdownMenu">
+        <button class="account-dropdown-item${!selectedAccount ? ' selected' : ''}"
+                onclick="window.selectAccount(null)">
+          All Accounts
+        </button>
+        ${accounts.map(account => `
+          <button class="account-dropdown-item${account === selectedAccount ? ' selected' : ''}"
+                  onclick="window.selectAccount('${account.replace(/'/g, "\\'")}')">
+            ${account}
+          </button>
+        `).join('')}
+      </div>
+    </div>`;
+  section.appendChild(wrapper.firstElementChild!);
 }
+
+;(window as any).toggleAccountDropdown = function(): void {
+  accountDropdownOpen = !accountDropdownOpen;
+  const menu = document.getElementById('accountDropdownMenu');
+  if (menu) menu.classList.toggle('hidden', !accountDropdownOpen);
+};
+
+;(window as any).selectAccount = function(account: string | null): void {
+  accountDropdownOpen = false;
+  const menu = document.getElementById('accountDropdownMenu');
+  if (menu) menu.classList.add('hidden');
+
+  if (account) {
+    activeFilter = { type: 'account', value: account };
+  } else {
+    // Clear account filter — return to unassigned default
+    activeFilter = { type: 'unassigned', value: 'unassigned' };
+    document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
+    document.querySelector('.queue-item[data-filter="unassigned"]')?.classList.add('active');
+  }
+
+  renderTicketList(liveTickets);
+  updateCounts(liveTickets);
+  renderAccountFilters();
+};
+
+// Close dropdown on outside click
+document.addEventListener('click', (e: MouseEvent) => {
+  if (!accountDropdownOpen) return;
+  const dropdown = document.getElementById('accountDropdown');
+  if (dropdown && !dropdown.contains(e.target as Node)) {
+    accountDropdownOpen = false;
+    const menu = document.getElementById('accountDropdownMenu');
+    if (menu) menu.classList.add('hidden');
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Input area

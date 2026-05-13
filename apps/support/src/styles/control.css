@@ -1354,3 +1354,104 @@
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
+
+/* ---------------------------------------------------------------------------
+   Account dropdown — queue panel filter
+   --------------------------------------------------------------------------- */
+.account-dropdown {
+  position: relative;
+  margin: 4px 8px 8px;
+}
+
+.account-dropdown-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.account-dropdown-trigger:hover {
+  background: var(--surface-3, var(--surface-2));
+  border-color: var(--cyan);
+  color: var(--text-primary);
+}
+
+.account-dropdown-trigger.active {
+  border-color: var(--cyan);
+  background: var(--cyan-dim);
+  color: var(--cyan);
+}
+
+.account-dropdown-label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-dropdown-chevron {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.account-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--surface-1, #0f172a);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-dropdown-menu.hidden {
+  display: none;
+}
+
+.account-dropdown-item {
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  text-align: left;
+  transition: background 0.1s ease, color 0.1s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.account-dropdown-item:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.account-dropdown-item.selected {
+  color: var(--cyan);
+  background: var(--cyan-dim);
+}
