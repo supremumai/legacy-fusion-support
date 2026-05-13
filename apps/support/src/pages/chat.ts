@@ -316,7 +316,8 @@ async function loadTicket(ticket: any) {
       console.warn('[loadTicket] failed to load messages:', e);
     }
   }
-  renderSidebar(IS_DEMO ? DEMO_DATA.tickets : liveTickets);
+  if (IS_DEMO) renderSidebar(DEMO_DATA.tickets);
+  // Live mode: sidebar managed by renderMyTicketsSidebar() — do not overwrite with all tickets
   await subscribeTicket(ticket.id);
 }
 
@@ -491,7 +492,8 @@ async function createTicketFromIntake() {
   intakeMessages = []; aiResponseCount = 0; intakeTempTicketId = '';
   // Prepend new ticket to live list so it appears at the top of Open group
   if (!IS_DEMO) liveTickets = [newTicket, ...liveTickets.filter(t => t.id !== newTicket.id)];
-  renderSidebar(IS_DEMO ? DEMO_DATA.tickets : liveTickets);
+  if (IS_DEMO) renderSidebar(DEMO_DATA.tickets);
+  // Live mode: loadMyTickets() below handles the refresh
   await loadTicket(newTicket);
   // Refresh My Tickets sidebar to include new ticket
   loadMyTickets().catch(err => console.warn('[chat] loadMyTickets refresh failed:', err));
