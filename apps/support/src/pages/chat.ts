@@ -210,6 +210,13 @@ function renderMyTicketsSidebar(grouped: MyTicketsGroup): void {
     closed:           '#6b7280',
   };
 
+  const SECTION_COLORS: Record<string, string> = {
+    open: '#06b6d4', waiting: '#f59e0b', resolved: '#22c55e',
+  };
+  const SECTION_LABELS: Record<string, string> = {
+    open: 'Open', waiting: 'Waiting', resolved: 'Resolved',
+  };
+
   const renderItem = (t: MyTicketItem): string => {
     const truncTitle = t.title.length > 34 ? t.title.slice(0, 34) + '…' : t.title;
     const color      = STATUS_COLORS[t.status] ?? '#8fa4b5';
@@ -225,23 +232,65 @@ function renderMyTicketsSidebar(grouped: MyTicketsGroup): void {
       </button>`;
   };
 
-  const inject = (id: string, items: MyTicketItem[]) => {
-    const container = document.getElementById(id);
-    if (!container) { console.warn('[renderMyTicketsSidebar] container not found:', id); return; }
-    // Keep the existing label element, replace the rest
-    const labelEl = container.querySelector('.sidebar-group-label');
-    container.innerHTML = '';
-    if (labelEl) container.appendChild(labelEl);
-    const itemsHtml = items.length
-      ? items.map(renderItem).join('')
-      : '<div class="sidebar-empty">No tickets</div>';
-    container.insertAdjacentHTML('beforeend', itemsHtml);
-  };
+  const sections: Array<{ key: string; items: MyTicketItem[]; defaultOpen: boolean }> = [
+    { key: 'open',     items: grouped.open,     defaultOpen: grouped.open.length > 0 },
+    { key: 'waiting',  items: grouped.waiting,  defaultOpen: false },
+    { key: 'resolved', items: grouped.resolved, defaultOpen: false },
+  ];
 
-  inject('sidebar-open',     grouped.open);
-  inject('sidebar-waiting',  grouped.waiting);
-  inject('sidebar-resolved', grouped.resolved);
+  sections.forEach(({ key, items, defaultOpen }) => {
+    const color = SECTION_COLORS[key];
+    const label = SECTION_LABELS[key];
+
+    // Preserve expanded state on re-render
+    const existing = document.querySelector(`[data-section="${key}"]`) as HTMLElement | null;
+    const isExpanded = existing
+      ? existing.querySelector('.sidebar-section-header')?.getAttribute('data-expanded') === 'true'
+      : defaultOpen;
+    const chevron = isExpanded ? '▾' : '▸';
+
+    const html = `
+      <div class="sidebar-section" data-section="${key}">
+        <button class="sidebar-section-header"
+          onclick="window.toggleSidebarSection('${key}')"
+          data-expanded="${isExpanded}">
+          <span class="sidebar-section-dot" style="background:${color}"></span>
+          <span class="sidebar-section-label" style="color:${color}">${label}</span>
+          <span class="sidebar-section-count" style="color:${color}">${items.length}</span>
+          <span class="sidebar-section-chevron" id="chevron-${key}">${chevron}</span>
+        </button>
+        <div class="sidebar-section-items ${isExpanded ? '' : 'collapsed'}"
+          id="section-items-${key}">
+          ${items.length ? items.map(renderItem).join('') : '<div class="sidebar-empty">No tickets</div>'}
+        </div>
+      </div>`;
+
+    if (existing) {
+      existing.outerHTML = html;
+    } else {
+      const old = document.getElementById(`sidebar-${key}`);
+      if (old) old.outerHTML = html;
+    }
+  });
 }
+
+;(window as any).toggleSidebarSection = function (key: string): void {
+  const section = document.querySelector(`[data-section="${key}"]`);
+  if (!section) return;
+
+  const header  = section.querySelector('.sidebar-section-header') as HTMLElement | null;
+  const items   = document.getElementById(`section-items-${key}`);
+  const chevron = document.getElementById(`chevron-${key}`);
+
+  if (!header || !items) return;
+
+  const isExpanded = header.getAttribute('data-expanded') === 'true';
+  const newExpanded = !isExpanded;
+
+  header.setAttribute('data-expanded', String(newExpanded));
+  items.classList.toggle('collapsed', !newExpanded);
+  if (chevron) chevron.textContent = newExpanded ? '▾' : '▸';
+};
 
 async function loadMyTickets(): Promise<void> {
   console.log('[loadMyTickets] called — userId:', currentUserId, '| locationId:', currentLocationId, '| IS_DEMO:', IS_DEMO);
