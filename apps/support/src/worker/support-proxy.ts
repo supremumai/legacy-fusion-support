@@ -189,15 +189,17 @@ function mapContactToContact(c: Record<string, unknown>): Contact {
 // POST /ghl/tickets/create
 async function createTicket(req: Request, env: Env, origin: string): Promise<Response> {
   const body = await req.json<{
-    userId:     string;
-    locationId: string;
-    userName:   string;
-    userEmail:  string;
-    title:      string;
-    category:   TicketCategory;
-    priority:   TicketPriority;
-    summary?:   string;
-    source?:    string;
+    userId:      string;
+    locationId:  string;
+    userName:    string;
+    userEmail:   string;
+    title:       string;
+    category:    TicketCategory;
+    priority:    TicketPriority;
+    summary?:    string;
+    source?:     string;
+    subcategory?: string;
+    imageUrls?:  string[];
   }>();
 
   console.log('[createTicket] params:', {
@@ -250,10 +252,12 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     contact_email:  body.userEmail ?? null,
     priority:       body.priority ?? 'medium',
     category:       body.category ?? 'general',
+    subcategory:    body.subcategory ?? null,
     summary:        body.summary ?? null,
     source:         (body.source ?? 'chat').toLowerCase(),
     sla_deadline:   slaDeadline,
     ghl_contact_id: ghlContactId,
+    image_urls:     body.imageUrls ?? [],
     updated_at:     new Date().toISOString(),
   };
 
@@ -1312,6 +1316,48 @@ export default {
       // TODO: GHL pipeline sync (activate when opportunities write scope is granted)
 
       return json({ success: true, ticketId, stage: stageBody.stage }, 200, origin);
+    }
+
+    // POST /support/images/upload — proxy image to Supabase Storage
+    if (method === 'POST' && path === '/support/images/upload') {
+      const formData = await req.formData();
+      const file = formData.get('file') as File | null;
+      const uploadPath = formData.get('path') as string | null;
+
+      if (!file || !uploadPath) {
+        return json({ error: 'file and path required' }, 400, origin);
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        return json({ error: 'file too large' }, 400, origin);
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+
+      const uploadRes = await fetch(
+        `${env.SUPABASE_URL}/storage/v1/object/ticket-images/${uploadPath}`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Content-Type':  file.type,
+            'x-upsert':      'true',
+          },
+          body: arrayBuffer,
+        }
+      );
+
+      if (!uploadRes.ok) {
+        const detail = await uploadRes.text();
+        console.error('[uploadImage] storage failed:', uploadRes.status, detail);
+        return json({ error: 'upload failed', detail }, 502, origin);
+      }
+
+      const publicUrl =
+        `${env.SUPABASE_URL}/storage/v1/object/public/ticket-images/${uploadPath}`;
+
+      console.log('[uploadImage] uploaded:', uploadPath);
+      return json({ url: publicUrl }, 200, origin);
     }
 
     return json({ error: 'Not found' }, 404, origin);

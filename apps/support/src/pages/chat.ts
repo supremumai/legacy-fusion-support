@@ -2,6 +2,7 @@
 import { sendMagicLink, signOut, subscribeToTicket, addMessage, getMessages, rekeyMessages } from '../services/supabase';
 import { continueConversation, triageConversation } from '../services/legacyzero';
 import { createTicket, listTickets, fetchMyTickets, MyTicketItem, MyTicketsGroup } from '../services/ghl';
+import { SUPPORT_TAXONOMY, buildTicketTitle, getCategoryLabel } from '../constants/taxonomy';
 
 // ---------------------------------------------------------------------------
 // Demo mode guard — runtime URL param detection
@@ -55,6 +56,13 @@ let activeChannel: any = null;
 let liveTickets: any[] = [];
 let myTicketsCache: MyTicketItem[] = [];
 const renderedMsgIds = new Set<string>();
+
+// ---------------------------------------------------------------------------
+// Ticket creation form state
+// ---------------------------------------------------------------------------
+let selectedCategory: string | null = null;
+let selectedSubcategory: string | null = null;
+let uploadedImages: File[] = []; // max 3
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -614,12 +622,13 @@ function appendThreadBubble(role: string, content: string, msgId: string | null 
   intakeTempTicketId = '';
   activeTicketId = null;
 
+  // Reset form state
+  selectedCategory    = null;
+  selectedSubcategory = null;
+  uploadedImages      = [];
+
   // Clear existing intake thread if present
   document.getElementById('intakeThread')?.remove();
-
-  // Clear the welcome input
-  const welcomeInput = document.getElementById('welcomeInput') as HTMLTextAreaElement | null;
-  if (welcomeInput) welcomeInput.value = '';
 
   // Switch to welcome/intake state
   document.getElementById('welcomeState')!.classList.remove('hidden');
@@ -629,8 +638,23 @@ function appendThreadBubble(role: string, content: string, msgId: string | null 
   document.querySelectorAll('.sidebar-ticket-row, .sidebar-ticket-item')
     .forEach(el => el.classList.remove('active'));
 
-  // Focus the input
-  document.getElementById('welcomeInput')?.focus();
+  // Re-show category step, hide others
+  document.getElementById('formStepCategory')?.classList.remove('hidden');
+  document.getElementById('formStepSubcategory')?.classList.add('hidden');
+  document.getElementById('formStepDetails')?.classList.add('hidden');
+
+  // Re-render category grid
+  renderCategoryGrid();
+
+  // Restore form header
+  const header = document.querySelector('.ticket-form-header');
+  if (header) {
+    header.innerHTML = `
+      <div class="ticket-form-icon">⬡</div>
+      <h2 class="ticket-form-title">Create Support Ticket</h2>
+      <p class="ticket-form-subtitle">Tell us what you need help with</p>
+    `;
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -663,6 +687,259 @@ document.getElementById('threadInput')!.addEventListener('keydown', (e: Event) =
 });
 
 // ---------------------------------------------------------------------------
+// Ticket creation form — rendering + handlers
+// ---------------------------------------------------------------------------
+
+function renderCategoryGrid(): void {
+  const grid = document.getElementById('categoryGrid');
+  if (!grid) return;
+  grid.innerHTML = SUPPORT_TAXONOMY.map(cat => `
+    <button class="category-card"
+      data-category="${cat.key}"
+      onclick="window.selectCategory('${cat.key}')">
+      <span class="category-card-icon">
+        ${cat.key === 'billing' ? '💳' : cat.key === 'technical' ? '⚙️' : '💬'}
+      </span>
+      <span class="category-card-label">${cat.label}</span>
+      <span class="category-card-count">${cat.subcategories.length} topics</span>
+    </button>
+  `).join('');
+}
+
+;(window as any).selectCategory = function(categoryKey: string): void {
+  selectedCategory = categoryKey;
+  const cat = SUPPORT_TAXONOMY.find(c => c.key === categoryKey);
+  if (!cat) return;
+
+  const label = document.getElementById('subcategoryLabel');
+  if (label) label.textContent = `${cat.label} — select a topic`;
+
+  const list = document.getElementById('subcategoryList');
+  if (list) {
+    list.innerHTML = cat.subcategories.map(sub => `
+      <button class="subcategory-item"
+        data-subcategory="${sub.key}"
+        onclick="window.selectSubcategory('${sub.key}')">
+        ${sub.label}
+      </button>
+    `).join('');
+  }
+
+  document.getElementById('formStepCategory')!.classList.add('hidden');
+  document.getElementById('formStepSubcategory')!.classList.remove('hidden');
+};
+
+;(window as any).selectSubcategory = function(subcategoryKey: string): void {
+  selectedSubcategory = subcategoryKey;
+
+  const breadcrumb = document.getElementById('ticketBreadcrumb');
+  if (breadcrumb && selectedCategory) {
+    const catLabel = getCategoryLabel(selectedCategory);
+    const subLabel = SUPPORT_TAXONOMY
+      .find(c => c.key === selectedCategory)
+      ?.subcategories
+      .find(s => s.key === subcategoryKey)?.label ?? '';
+    breadcrumb.innerHTML = `
+      <span class="breadcrumb-cat">${catLabel}</span>
+      <span class="breadcrumb-sep">›</span>
+      <span class="breadcrumb-sub">${subLabel}</span>
+    `;
+  }
+
+  renderImageSlots();
+
+  document.getElementById('formStepSubcategory')!.classList.add('hidden');
+  document.getElementById('formStepDetails')!.classList.remove('hidden');
+};
+
+;(window as any).clearCategory = function(): void {
+  selectedCategory = null;
+  selectedSubcategory = null;
+  document.getElementById('formStepSubcategory')!.classList.add('hidden');
+  document.getElementById('formStepCategory')!.classList.remove('hidden');
+};
+
+;(window as any).clearSubcategory = function(): void {
+  selectedSubcategory = null;
+  document.getElementById('formStepDetails')!.classList.add('hidden');
+  document.getElementById('formStepSubcategory')!.classList.remove('hidden');
+};
+
+function renderImageSlots(): void {
+  const container = document.getElementById('imageUploadSlots');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const file = uploadedImages[i];
+    const slot = document.createElement('div');
+    slot.className = 'image-slot' + (file ? ' has-image' : '');
+    slot.dataset['slot'] = String(i);
+    if (file) {
+      const url = URL.createObjectURL(file);
+      slot.innerHTML = `
+        <img src="${url}" class="image-slot-preview" alt="attachment ${i + 1}">
+        <button class="image-slot-remove" onclick="window.removeImage(${i})">✕</button>
+      `;
+    } else if (uploadedImages.length < 3) {
+      slot.innerHTML = `
+        <button class="image-slot-add" onclick="window.triggerImageUpload(${i})">
+          <span>+</span>
+          <span class="image-slot-hint">Add image</span>
+        </button>
+      `;
+    } else {
+      slot.innerHTML = `<div class="image-slot-disabled">Max reached</div>`;
+    }
+    container.appendChild(slot);
+  }
+}
+
+;(window as any).triggerImageUpload = function(_slot: number): void {
+  document.getElementById('imageFileInput')?.click();
+};
+
+;(window as any).handleImageSelected = function(input: HTMLInputElement): void {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (uploadedImages.length >= 3) return;
+  if (file.size > 5 * 1024 * 1024) {
+    showTicketFormError('Image must be under 5MB');
+    return;
+  }
+  uploadedImages.push(file);
+  input.value = '';
+  renderImageSlots();
+};
+
+;(window as any).removeImage = function(index: number): void {
+  uploadedImages.splice(index, 1);
+  renderImageSlots();
+};
+
+function showTicketFormError(msg: string): void {
+  const el = document.getElementById('ticketFormError');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function clearTicketFormError(): void {
+  const el = document.getElementById('ticketFormError');
+  if (!el) return;
+  el.textContent = '';
+  el.classList.add('hidden');
+}
+
+async function uploadTicketImage(file: File): Promise<string | null> {
+  try {
+    const ext = file.name.split('.').pop() ?? 'jpg';
+    const path = `${_userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('path', path);
+
+    const res = await fetch(
+      `${(window as any).__WORKER_URL__ ?? 'https://legacy-fusion-support.hector-0b9.workers.dev'}/support/images/upload`,
+      { method: 'POST', body: formData }
+    );
+    if (!res.ok) {
+      console.warn('[uploadImage] failed:', res.status);
+      return null;
+    }
+    const data = await res.json() as { url: string };
+    return data.url;
+  } catch (e) {
+    console.warn('[uploadImage] error:', e);
+    return null;
+  }
+}
+
+function showTicketConfirmation(ticketId: string): void {
+  document.getElementById('formStepCategory')!.classList.add('hidden');
+  document.getElementById('formStepSubcategory')!.classList.add('hidden');
+  document.getElementById('formStepDetails')!.classList.add('hidden');
+
+  const header = document.querySelector('.ticket-form-header');
+  if (header) {
+    header.innerHTML = `
+      <div class="ticket-confirm-icon">✓</div>
+      <h2 class="ticket-form-title">Ticket Created</h2>
+      <p class="ticket-form-subtitle">
+        Your ticket <strong>${ticketId}</strong> has been submitted to our Support Center.
+        Our team will review it shortly.
+      </p>
+      <button class="create-ticket-btn" style="margin-top:24px"
+        onclick="window.startNewChat()">
+        + New Ticket
+      </button>
+    `;
+  }
+}
+
+;(window as any).submitTicketForm = async function(): Promise<void> {
+  clearTicketFormError();
+
+  const description = (document.getElementById('ticketDescription') as HTMLTextAreaElement)?.value?.trim();
+
+  if (!selectedCategory || !selectedSubcategory) {
+    showTicketFormError('Please select a category');
+    return;
+  }
+  if (!description) {
+    showTicketFormError('Please describe your issue');
+    return;
+  }
+
+  const btn = document.getElementById('createTicketBtn') as HTMLButtonElement | null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Creating ticket…';
+  }
+
+  try {
+    const imageUrls: string[] = [];
+    for (const file of uploadedImages) {
+      const url = await uploadTicketImage(file);
+      if (url) imageUrls.push(url);
+    }
+
+    const title = buildTicketTitle(selectedCategory, selectedSubcategory);
+    const ticket = await createTicket({
+      userId:     _userId,
+      locationId: _locationId,
+      userName:   _userName,
+      userEmail:  _userEmail,
+      title,
+      category:    selectedCategory as any,
+      priority:    'medium',
+      summary:     description,
+      source:      'chat',
+      subcategory: selectedSubcategory,
+      imageUrls,
+    } as any);
+
+    selectedCategory    = null;
+    selectedSubcategory = null;
+    uploadedImages      = [];
+
+    // Show confirmation — Batch A3 will wire LegacyZero auto-response here
+    showTicketConfirmation(ticket.id);
+
+    // Refresh My Tickets sidebar
+    loadMyTickets().catch(() => {});
+
+  } catch (err: any) {
+    console.error('[submitTicketForm]', err);
+    showTicketFormError('Failed to create ticket. Please try again.');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Create Ticket';
+    }
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
@@ -683,6 +960,7 @@ async function init() {
     }
     // Do not call renderSidebar or auto-open a ticket — user picks from My Tickets sidebar
     await loadMyTickets();
+    renderCategoryGrid();
   }
 }
 

@@ -43,14 +43,17 @@ async function workerFetch<T>(
 // createTicket
 // ---------------------------------------------------------------------------
 export interface CreateTicketParams {
-  userId:     string;
-  locationId: string;
-  userName:   string;
-  userEmail:  string;
-  title:      string;
-  category:   TicketCategory;
-  priority:   TicketPriority;
-  summary?:   string;
+  userId:      string;
+  locationId:  string;
+  userName:    string;
+  userEmail:   string;
+  title:       string;
+  category:    TicketCategory;
+  priority:    TicketPriority;
+  summary?:    string;
+  source?:     string;
+  subcategory?: string;
+  imageUrls?:  string[];
 }
 
 export async function createTicket(params: CreateTicketParams): Promise<Ticket> {
@@ -66,14 +69,17 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
     {
       method: 'POST',
       body: JSON.stringify({
-        userId:     params.userId,
-        locationId: params.locationId,
-        userName:   params.userName,
-        userEmail:  params.userEmail,
-        title:      params.title,
-        category:   params.category,
-        priority:   params.priority,
-        summary:    params.summary,
+        userId:      params.userId,
+        locationId:  params.locationId,
+        userName:    params.userName,
+        userEmail:   params.userEmail,
+        title:       params.title,
+        category:    params.category,
+        priority:    params.priority,
+        summary:     params.summary,
+        source:      params.source,
+        subcategory: params.subcategory,
+        imageUrls:   params.imageUrls,
       }),
     }
   );

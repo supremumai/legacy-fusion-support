@@ -88,26 +88,89 @@
            --------------------------------------------------------------- -->
       <section class="welcome-state" id="welcomeState">
         <div class="welcome-content glass-card">
-          <div class="welcome-logo">
-            <span class="welcome-glyph">⬡</span>
-          </div>
-          <h1 class="welcome-title">Hi, I'm <span class="text-gold">LegacyZero</span></h1>
-          <p class="welcome-subtitle">Tell me what's going on — I'll help you right away.</p>
 
-          <div class="welcome-input-wrap" id="welcomeInputWrap">
-            <textarea
-              id="welcomeInput"
-              class="chat-textarea"
-              placeholder="Describe your issue..."
-              rows="3"
-            ></textarea>
-            <button class="btn-gold send-btn" id="welcomeSendBtn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-              Send
-            </button>
+          <!-- Ticket creation form header -->
+          <div class="ticket-form-header">
+            <div class="ticket-form-icon">⬡</div>
+            <h2 class="ticket-form-title">Create Support Ticket</h2>
+            <p class="ticket-form-subtitle">Tell us what you need help with</p>
           </div>
+
+          <!-- Step 1: Category selection -->
+          <div class="ticket-form-section" id="formStepCategory">
+            <p class="ticket-form-label">Select a category</p>
+            <div class="category-grid" id="categoryGrid">
+              <!-- Rendered by chat.ts renderCategoryGrid() -->
+            </div>
+          </div>
+
+          <!-- Step 2: Subcategory (hidden until category selected) -->
+          <div class="ticket-form-section hidden" id="formStepSubcategory">
+            <button class="back-btn" onclick="window.clearCategory()">← Back</button>
+            <p class="ticket-form-label" id="subcategoryLabel">Select a subcategory</p>
+            <div class="subcategory-list" id="subcategoryList">
+              <!-- Rendered by chat.ts renderSubcategoryList() -->
+            </div>
+          </div>
+
+          <!-- Step 3: Description + images (hidden until subcategory selected) -->
+          <div class="ticket-form-section hidden" id="formStepDetails">
+            <button class="back-btn" onclick="window.clearSubcategory()">← Back</button>
+
+            <!-- Selected path breadcrumb -->
+            <div class="ticket-breadcrumb" id="ticketBreadcrumb"></div>
+
+            <p class="ticket-form-label">Describe your issue</p>
+            <textarea
+              id="ticketDescription"
+              class="ticket-description-input"
+              placeholder="Please describe what's happening in as much detail as possible…"
+              rows="4"
+            ></textarea>
+
+            <!-- Image upload -->
+            <div class="image-upload-section">
+              <p class="ticket-form-label">
+                Attach images
+                <span class="ticket-form-hint">(optional, max 3)</span>
+              </p>
+              <div class="image-upload-slots" id="imageUploadSlots">
+                <!-- 3 upload slots rendered by chat.ts -->
+              </div>
+              <input type="file" id="imageFileInput"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                style="display:none"
+                onchange="window.handleImageSelected(this)">
+            </div>
+
+            <!-- Submit -->
+            <button class="create-ticket-btn" id="createTicketBtn"
+              onclick="window.submitTicketForm()">
+              Create Ticket
+            </button>
+            <p class="ticket-form-error hidden" id="ticketFormError"></p>
+          </div>
+
         </div>
       </section>
+
+      <!-- ---------------------------------------------------------------
+           Legacy intake elements — preserved for demo mode, hidden in live
+           --------------------------------------------------------------- -->
+      <div id="legacyIntakeContainer" style="display:none">
+        <div class="welcome-input-wrap" id="welcomeInputWrap">
+          <textarea
+            id="welcomeInput"
+            class="chat-textarea"
+            placeholder="Describe your issue..."
+            rows="3"
+          ></textarea>
+          <button class="btn-gold send-btn" id="welcomeSendBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Send
+          </button>
+        </div>
+      </div>
 
       <!-- ---------------------------------------------------------------
            Thread Mode (shown when a ticket is active)
