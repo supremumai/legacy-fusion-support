@@ -235,31 +235,34 @@ function renderTicketList(tickets?: any[]) {
   if (filtered.length === 0) { list.innerHTML = '<div class="ticket-list-empty">No tickets match this filter.</div>'; return; }
   filtered.forEach(ticket => {
     const row = document.createElement('button');
-    row.className = 'ticket-row' + (ticket.id === activeTicketId ? ' active' : '');
+    row.className = 'cc-ticket-row' + (ticket.id === activeTicketId ? ' active' : '');
     row.dataset['ticketId'] = ticket.id;
-    const urgent = slaIsUrgent(ticket.slaDeadline);
     const priority      = ticket.priority ?? 'medium';
-    const category      = ticket.category ?? 'general';
     const priorityColor = PRIORITY_COLORS[priority] ?? '#8fa4b5';
     const truncTitle    = (ticket.title ?? '').length > 40
       ? (ticket.title as string).slice(0, 40) + '…'
       : (ticket.title ?? '');
+    const statusKey = stageMap[ticket.ghlOpportunityId ?? ticket.id] ?? ticket.status ?? 'new';
+    const statusColor = STAGE_COLORS[statusKey] ?? '#06b6d4';
     row.innerHTML = `
-      <div class="ticket-row-top">
-        <span class="priority-dot" style="background:${priorityColor}"></span>
-        <span class="ticket-row-account">${ticket.accountName ?? '—'}</span>
-        ${ticket.assignedTo ? `<span class="agent-avatar">${ticket.assignedTo}</span>` : '<span class="agent-avatar unassigned">—</span>'}
+      <div class="cc-ticket-row-top">
+        <span class="cc-ticket-account">${ticket.accountName ?? '—'}</span>
+        <span class="cc-ticket-time">${ticket.updatedAt ? timeAgo(ticket.updatedAt) : ''}</span>
       </div>
-      <div class="ticket-row-title">${truncTitle}</div>
-      <div class="ticket-row-bottom">
-        <span class="badge-pill badge-cyan ticket-cat-badge">${category}</span>
-        ${ticket.accountName && ticket.accountName !== '—' ? `<span class="account-badge">${ticket.accountName}</span>` : ''}
-        <span class="sla-timer ${urgent ? 'sla-urgent' : ''}">${ticket.slaDeadline ? slaLabel(ticket.slaDeadline) : '—'}</span>
+      <div class="cc-ticket-title">${truncTitle}</div>
+      <div class="cc-ticket-meta">
+        <span class="cc-ticket-status-dot" style="background:${statusColor}"></span>
+        <span class="cc-ticket-priority" style="color:${priorityColor}">${priority}</span>
+        ${ticket.assignedTo ? `<span class="cc-ticket-assigned">${ticket.assignedTo}</span>` : ''}
       </div>
     `;
     row.addEventListener('click', () => loadWorkspace(ticket));
     list.appendChild(row);
   });
+
+  // Update ticket count badge
+  const countEl = document.getElementById('ccTicketCount');
+  if (countEl) countEl.textContent = String(filtered.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +306,7 @@ function appendWsBubble(message: any) {
 }
 
 function flashTicketRow(ticketId: string) {
-  const row = document.querySelector(`.ticket-row[data-ticket-id="${ticketId}"]`);
+  const row = document.querySelector(`.cc-ticket-row[data-ticket-id="${ticketId}"]`);
   if (!row) return;
   row.classList.add('flash-cyan');
   setTimeout(() => row.classList.remove('flash-cyan'), 1000);
@@ -326,6 +329,7 @@ async function loadWorkspace(ticket: any) {
   const wsPillDefs = [
     { label: ticket.accountName,   color: '#a78bfa' },
     { label: ticket.contactName,   color: '#06b6d4' },
+    { label: ticket.plan ?? null,  color: '#f5a623' },
     { label: ticket.category
         ? (ticket.category as string).charAt(0).toUpperCase() + (ticket.category as string).slice(1)
         : null,
@@ -364,26 +368,6 @@ async function loadWorkspace(ticket: any) {
     actionEl.textContent = `→ ${s.suggestedAction}`;
     summaryTextEl.insertAdjacentElement('afterend', actionEl);
   }
-  // Seed context strip immediately with available data, then hydrate from GHL
-  const c = ticket.contact;
-  document.getElementById('ctxName')!.textContent        = ticket.contactName ?? c?.name ?? '—';
-  document.getElementById('ctxPlanBadge')!.textContent   = c?.plan ?? '—';
-  document.getElementById('ctxMRR')!.textContent         = formatMRR(c?.mrr ?? null);
-  document.getElementById('ctxSince')!.textContent       = c?.memberSince ? formatDate(c.memberSince) : '—';
-  document.getElementById('ctxPastTickets')!.textContent = String(c?.pastTickets ?? 0);
-  const ghlId = c?.ghlId ?? ticket.ghlContactId;
-  (document.getElementById('ctxGHLLink') as HTMLAnchorElement).href = ghlId ? `https://app.gohighlevel.com/contacts/${ghlId}` : '#';
-
-  // Async hydrate contact from GHL if we have a real contact ID and not in demo
-  if (!IS_DEMO && ticket.ghlContactId) {
-    getContact(ticket.ghlContactId).then(contact => {
-      if (activeTicketId !== ticket.id) return; // ticket changed while fetching
-      document.getElementById('ctxName')!.textContent = contact.name ?? '—';
-      (document.getElementById('ctxGHLLink') as HTMLAnchorElement).href =
-        `https://app.gohighlevel.com/contacts/${contact.ghlContactId}`;
-    }).catch(err => console.warn('[loadWorkspace] contact fetch failed:', err));
-  }
-
   // Async hydrate AI Analysis fields from Supabase support_tickets row
   if (!IS_DEMO && ticket.ghlOpportunityId) {
     fetchSupabaseTicket(ticket.ghlOpportunityId).then(row => {
@@ -641,18 +625,9 @@ function renderFilterDropdowns(): void {
 // Account filter — dynamic dropdown, built after fetchLiveTickets populates liveTickets
 // ---------------------------------------------------------------------------
 function renderAccountFilters(): void {
-  // Find or create account filter section in queue panel
-  let section = document.getElementById('account-filter-section');
-  if (!section) {
-    section = document.createElement('div');
-    section.id = 'account-filter-section';
-    section.className = 'queue-section';
-    const label = document.createElement('div');
-    label.className = 'queue-section-label';
-    label.textContent = 'ACCOUNT';
-    section.appendChild(label);
-    document.querySelector('.queue-panel')?.appendChild(section);
-  }
+  // Use #accountFilters container in sidebar
+  const section = document.getElementById('accountFilters');
+  if (!section) return;
 
   // Only show accounts that have tickets
   const accounts = [...new Set(
@@ -661,9 +636,8 @@ function renderAccountFilters(): void {
       .filter((n: string) => n && n !== '—')
   )] as string[];
 
-  // Remove old dropdown (keep the label)
-  section.querySelector('.account-dropdown')?.remove();
-
+  // Clear and rebuild
+  section.innerHTML = '';
   if (accounts.length === 0) return;
 
   // Get currently selected account
@@ -785,7 +759,7 @@ function showKBPrompt(ticket: any) {
       <button id="kbSkipBtn" class="kb-skip-btn">Skip</button>
     </div>
   `;
-  document.querySelector('.workspace-panel')?.appendChild(prompt);
+  (document.getElementById('workspaceContent') ?? document.getElementById('ccMain'))?.appendChild(prompt);
 
   document.getElementById('kbSkipBtn')!.addEventListener('click', () => prompt.remove());
   document.getElementById('kbSaveBtn')!.addEventListener('click', async () => {
@@ -1066,7 +1040,7 @@ async function silentRefresh() {
     // Flash only genuinely new tickets
     if (addedIds.length > 0) {
       addedIds.forEach(id => {
-        const row = document.querySelector(`.ticket-row[data-ticket-id="${id}"]`);
+        const row = document.querySelector(`.cc-ticket-row[data-ticket-id="${id}"]`);
         if (row) {
           row.classList.add('flash-cyan');
           setTimeout(() => row.classList.remove('flash-cyan'), 1500);
@@ -1137,10 +1111,8 @@ async function togglePipelineView() {
   const btn = document.getElementById('pipeline-toggle-btn') as HTMLButtonElement;
   if (currentView === '3panel') {
     currentView = 'pipeline';
-    // Hide the 3-panel contents (queue + ticket list panels)
-    document.getElementById('queuePanel')!.style.display = 'none';
-    document.getElementById('ticketListPanel')!.style.display = 'none';
-    document.getElementById('workspacePanel')!.style.display = 'none';
+    // Hide sidebar in pipeline mode
+    document.getElementById('ccSidebar')!.style.display = 'none';
     btn.textContent = '← Back';
     // Fetch fresh stages from Supabase, merge into liveTickets, then render
     await loadStageMap();
@@ -1148,10 +1120,8 @@ async function togglePipelineView() {
     renderPipelineBoard();
   } else {
     currentView = '3panel';
-    // Show the 3-panel contents
-    document.getElementById('queuePanel')!.style.display = '';
-    document.getElementById('ticketListPanel')!.style.display = '';
-    document.getElementById('workspacePanel')!.style.display = '';
+    // Show sidebar
+    document.getElementById('ccSidebar')!.style.display = '';
     // Remove pipeline board
     document.getElementById('pipeline-board')?.remove();
     btn.textContent = '⬡ Pipeline';
@@ -1210,9 +1180,7 @@ function buildCard(ticket: any, stageColor: string): HTMLElement {
   card.addEventListener('click', () => {
     // Switch back to 3panel and open this ticket
     currentView = '3panel';
-    document.getElementById('queuePanel')!.style.display = '';
-    document.getElementById('ticketListPanel')!.style.display = '';
-    document.getElementById('workspacePanel')!.style.display = '';
+    document.getElementById('ccSidebar')!.style.display = '';
     document.getElementById('pipeline-board')?.remove();
     const btn = document.getElementById('pipeline-toggle-btn') as HTMLButtonElement;
     if (btn) btn.textContent = '⬡ Pipeline';

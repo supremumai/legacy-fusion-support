@@ -41,44 +41,14 @@
        ===================================================================== -->
   <div class="control-app hidden" id="controlApp">
 
-    <!-- -----------------------------------------------------------------
-         Panel 1 — Queue Filters (170px)
-         ----------------------------------------------------------------- -->
-    <aside class="queue-panel glass-card" id="queuePanel">
+    <!-- SIDEBAR -->
+    <aside class="cc-sidebar" id="ccSidebar">
 
-      <div class="queue-header">
-        <span class="queue-brand">
-          <span class="brand-dot"></span>
-          Filters
-        </span>
-      </div>
-
-      <!-- Unassigned quick-filter (kept as queue-item) -->
-      <div class="queue-section">
-        <button class="queue-item active" data-filter="unassigned" data-value="unassigned">
-          <span>Unassigned</span>
-          <span class="filter-count badge-pill" id="count-unassigned">0</span>
-        </button>
-      </div>
-
-      <!-- Filter dropdowns — populated by renderFilterDropdowns() -->
-      <div id="filter-group-priority"></div>
-      <div id="filter-group-category"></div>
-      <div id="filter-group-status"></div>
-      <div id="filter-group-source"></div>
-
-    </aside>
-
-    <!-- -----------------------------------------------------------------
-         Panel 2 — Ticket List (280px)
-         ----------------------------------------------------------------- -->
-    <section class="ticket-list-panel glass-card" id="ticketListPanel">
-
-      <div class="ticket-list-header">
-        <span class="ticket-list-title">Support Queue</span>
-        <button class="new-ticket-btn" onclick="openNewTicketModal()">+ New Ticket</button>
-        <div class="ticket-list-header-right">
-          <button class="refresh-btn" id="pipeline-toggle-btn" title="Toggle pipeline view">⬡ Pipeline</button>
+      <!-- Top actions -->
+      <div class="cc-sidebar-actions">
+        <button class="cc-new-ticket-btn" onclick="openNewTicketModal()">+ New Ticket</button>
+        <button class="cc-pipeline-btn" id="pipeline-toggle-btn">⬡ Pipeline</button>
+        <div class="cc-sidebar-util">
           <span class="live-badge">
             <span class="live-dot"></span>
             Live
@@ -88,16 +58,38 @@
         </div>
       </div>
 
-      <div class="ticket-list" id="ticketList">
-        <!-- Ticket rows injected by JS -->
+      <!-- Filters section -->
+      <div class="cc-sidebar-section">
+        <div class="cc-section-label">Filters</div>
+        <div class="queue-section">
+          <button class="queue-item active" data-filter="unassigned" data-value="unassigned">
+            <span>Unassigned</span>
+            <span class="filter-count badge-pill" id="count-unassigned">0</span>
+          </button>
+        </div>
+        <div id="filter-group-priority"></div>
+        <div id="filter-group-category"></div>
+        <div id="filter-group-status"></div>
+        <div id="filter-group-source"></div>
+        <div class="cc-section-label" style="margin-top:4px">Account</div>
+        <div id="accountFilters"></div>
       </div>
 
-    </section>
+      <!-- Tickets section -->
+      <div class="cc-sidebar-section cc-tickets-section">
+        <div class="cc-section-label">
+          Tickets
+          <span class="cc-ticket-count" id="ccTicketCount">0</span>
+        </div>
+        <div class="ticket-list" id="ticketList">
+          <!-- Ticket rows injected by JS -->
+        </div>
+      </div>
 
-    <!-- -----------------------------------------------------------------
-         Panel 3 — Workspace (flex 1)
-         ----------------------------------------------------------------- -->
-    <section class="workspace-panel" id="workspacePanel">
+    </aside>
+
+    <!-- MAIN AREA -->
+    <main class="cc-main" id="ccMain">
 
       <!-- Empty state -->
       <div class="workspace-empty glass-card" id="workspaceEmpty">
@@ -105,8 +97,8 @@
         <p class="empty-label">Select a ticket to view the workspace</p>
       </div>
 
-      <!-- Workspace content (hidden until ticket selected) -->
-      <div class="workspace-content hidden" id="workspaceContent">
+      <!-- Workspace content -->
+      <div class="workspace-content hidden cc-workspace" id="workspaceContent">
 
         <!-- Workspace header -->
         <div class="workspace-header glass-card">
@@ -145,41 +137,7 @@
         </div>
 
         <!-- Conversation thread -->
-        <div class="ws-thread" id="wsThread">
-          <!-- Bubbles injected by JS -->
-        </div>
-
-        <!-- Context strip -->
-        <div class="context-strip glass-card" id="contextStrip">
-          <div class="context-item">
-            <span class="context-label">Contact</span>
-            <span class="context-value" id="ctxName">—</span>
-          </div>
-          <div class="context-sep"></div>
-          <div class="context-item">
-            <span class="context-label">Plan</span>
-            <span class="context-value" id="ctxPlan">
-              <span class="badge-pill badge-cyan" id="ctxPlanBadge">—</span>
-            </span>
-          </div>
-          <div class="context-sep"></div>
-          <div class="context-item">
-            <span class="context-label">MRR</span>
-            <span class="context-value context-mrr" id="ctxMRR">—</span>
-          </div>
-          <div class="context-sep"></div>
-          <div class="context-item">
-            <span class="context-label">Member Since</span>
-            <span class="context-value" id="ctxSince">—</span>
-          </div>
-          <div class="context-sep"></div>
-          <div class="context-item">
-            <span class="context-label">Past Tickets</span>
-            <span class="context-value" id="ctxPastTickets">—</span>
-          </div>
-          <div class="context-sep"></div>
-          <a class="context-ghl-link text-cyan" id="ctxGHLLink" href="#" target="_blank">View in GHL →</a>
-        </div>
+        <div class="ws-thread" id="wsThread"></div>
 
         <!-- Reply input area -->
         <div class="ws-input-area">
@@ -195,9 +153,9 @@
           </div>
         </div>
 
-      </div><!-- /.workspace-content -->
+      </div><!-- /.cc-workspace -->
 
-    </section>
+    </main>
 
   </div><!-- /.control-app -->
 
