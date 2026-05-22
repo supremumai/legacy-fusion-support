@@ -196,10 +196,11 @@ async function autoRespondToTicket(params: {
   subcategory: string;
   description: string;
   locationId:  string;
+  imageUrls:   string[];
   kbEntries:   Array<{ problem: string; solution: string; category: string; tags: string[] }>;
   env:         Env;
 }): Promise<{ response: string; resolved: boolean; resolution_note: string | null }> {
-  const { title, category, subcategory, description, kbEntries, env } = params;
+  const { title, category, subcategory, description, imageUrls, kbEntries, env } = params;
 
   const kbContext = kbEntries.length > 0
     ? '\n\nKNOWLEDGE BASE (use to resolve if relevant):\n' +
@@ -233,6 +234,32 @@ async function autoRespondToTicket(params: {
     `Category: ${category} — ${subcategory}\n` +
     `Customer description: ${description}`;
 
+  // Build content array with optional image blocks
+  const contentBlocks: any[] = [
+    { type: 'text', text: userMessage }
+  ];
+
+  for (const url of (imageUrls ?? []).slice(0, 3)) {
+    try {
+      const imgRes = await fetch(url);
+      if (!imgRes.ok) continue;
+      const buffer = await imgRes.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+      contentBlocks.push({
+        type: 'image',
+        source: {
+          type:       'base64',
+          media_type: contentType,
+          data:       base64,
+        },
+      });
+      console.log('[autoRespond] image attached:', url.slice(-40));
+    } catch (e) {
+      console.warn('[autoRespond] image fetch failed:', url, e);
+    }
+  }
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -244,7 +271,7 @@ async function autoRespondToTicket(params: {
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1000,
       system:     systemPrompt,
-      messages:   [{ role: 'user', content: userMessage }],
+      messages:   [{ role: 'user', content: contentBlocks }],
     }),
   });
 
@@ -409,6 +436,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
       subcategory: body.subcategory ?? '',
       description: body.summary ?? '',
       locationId:  body.locationId,
+      imageUrls:   body.imageUrls ?? [],
       kbEntries,
       env,
     });

@@ -1095,3 +1095,45 @@
   font-style: normal;
   font-weight: 600;
 }
+
+/* ── Confirmation action buttons ─────────────────────────────────────────── */
+.confirmation-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.view-ticket-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  background: #f5a623;
+  color: #0d1b2a;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  letter-spacing: 0.02em;
+}
+
+.view-ticket-btn:hover { opacity: 0.88; }
+
+.new-ticket-link {
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: #8fa4b5;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.new-ticket-link:hover {
+  background: rgba(255,255,255,0.05);
+  color: #e2e8f0;
+}

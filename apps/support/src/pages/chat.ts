@@ -627,6 +627,23 @@ function appendThreadBubble(role: string, content: string, msgId: string | null 
   selectedSubcategory = null;
   uploadedImages      = [];
 
+  // Clear ticket description textarea
+  const descEl = document.getElementById('ticketDescription') as HTMLTextAreaElement | null;
+  if (descEl) descEl.value = '';
+
+  // Reset Create Ticket button
+  const createBtn = document.getElementById('createTicketBtn') as HTMLButtonElement | null;
+  if (createBtn) {
+    createBtn.disabled = false;
+    createBtn.textContent = 'Create Ticket';
+  }
+
+  // Clear form error
+  clearTicketFormError();
+
+  // Re-render image slots (clears uploaded images UI)
+  renderImageSlots();
+
   // Clear existing intake thread if present
   document.getElementById('intakeThread')?.remove();
 
@@ -900,10 +917,16 @@ function showTicketConfirmation(
       Ticket <strong>${ticketId}</strong> has been submitted to our Support Center.
     </p>
     ${aiBlock}
-    <button class="create-ticket-btn" style="margin-top:20px"
-      onclick="window.startNewChat()">
-      + New Ticket
-    </button>
+    <div class="confirmation-actions">
+      <button class="view-ticket-btn"
+        onclick="window.viewCreatedTicket('${ticketId}')">
+        View my ticket →
+      </button>
+      <button class="new-ticket-link"
+        onclick="window.startNewChat()">
+        + New Ticket
+      </button>
+    </div>
   `;
 }
 
@@ -934,6 +957,31 @@ function showTicketConfirmation(
   }
 
   loadMyTickets().catch(() => {});
+};
+
+;(window as any).viewCreatedTicket = async function(ticketId: string): Promise<void> {
+  // Find ticket in cache
+  let ticket = myTicketsCache.find(t => t.id === ticketId);
+
+  // If not in cache yet, reload My Tickets first
+  if (!ticket) {
+    await loadMyTickets();
+    ticket = myTicketsCache.find(t => t.id === ticketId);
+  }
+
+  if (!ticket) {
+    console.warn('[viewCreatedTicket] not found:', ticketId);
+    return;
+  }
+
+  // Mark active in sidebar
+  document.querySelectorAll('.sidebar-ticket-item')
+    .forEach(el => el.classList.remove('active'));
+  document.querySelector(`.sidebar-ticket-item[data-ticket-id="${ticketId}"]`)
+    ?.classList.add('active');
+
+  // Open ticket thread
+  await loadTicket(ticket);
 };
 
 ;(window as any).submitTicketForm = async function(): Promise<void> {
