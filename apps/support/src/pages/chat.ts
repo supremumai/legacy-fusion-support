@@ -377,7 +377,124 @@ async function loadTicket(ticket: any) {
   if (IS_DEMO) renderSidebar(DEMO_DATA.tickets);
   // Live mode: sidebar managed by renderMyTicketsSidebar() — do not overwrite with all tickets
   await subscribeTicket(ticket.id);
+
+  // Show resolved state if ticket is resolved/closed
+  const isResolved = ['resolved', 'closed'].includes(ticket.status ?? '');
+  if (isResolved) {
+    showResolvedInputState(ticket.id);
+  } else {
+    showActiveInputState();
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Input area state — active vs resolved
+// ---------------------------------------------------------------------------
+function showResolvedInputState(ticketId: string): void {
+  const inputArea = document.getElementById('threadInputArea');
+  if (!inputArea) return;
+
+  inputArea.innerHTML = `
+    <div class="resolved-state-wrap">
+      <div class="resolved-state-icon">✓</div>
+      <p class="resolved-state-label">This ticket has been resolved</p>
+      <div class="resolved-state-actions">
+        <button class="reopen-ticket-btn"
+          onclick="window.reopenTicket('${ticketId}')">
+          Reopen ticket
+        </button>
+        <button class="new-ticket-secondary-btn"
+          onclick="window.startNewChat()">
+          + New Ticket
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function showActiveInputState(): void {
+  const inputArea = document.getElementById('threadInputArea');
+  if (!inputArea) return;
+
+  // Only restore if it was replaced with resolved state
+  if (!inputArea.querySelector('#threadInput')) {
+    inputArea.innerHTML = `
+      <div class="quick-actions" id="quickActions">
+        <button class="quick-pill" data-prompt="Billing issue">Billing issue</button>
+        <button class="quick-pill" data-prompt="Report a bug">Report a bug</button>
+        <button class="quick-pill" data-prompt="Need help">Need help</button>
+        <button class="quick-pill" data-prompt="Talk to human">Talk to human</button>
+      </div>
+      <div class="chat-input-bar">
+        <textarea
+          id="threadInput"
+          class="chat-textarea"
+          placeholder="Type a message…"
+          rows="1"
+        ></textarea>
+        <button class="btn-gold send-btn" id="threadSendBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          Send
+        </button>
+      </div>
+    `;
+
+    // Re-attach event listeners
+    const threadInput  = document.getElementById('threadInput')  as HTMLTextAreaElement | null;
+    const threadSendBtn = document.getElementById('threadSendBtn') as HTMLButtonElement | null;
+    threadSendBtn?.addEventListener('click', handleThreadSend);
+    threadInput?.addEventListener('keydown', (e: Event) => {
+      if ((e as KeyboardEvent).key === 'Enter' && !(e as KeyboardEvent).shiftKey) {
+        e.preventDefault();
+        handleThreadSend();
+      }
+    });
+    threadInput?.addEventListener('input', () => {
+      if (threadInput) {
+        threadInput.style.height = 'auto';
+        threadInput.style.height = Math.min(threadInput.scrollHeight, 160) + 'px';
+      }
+    });
+    // Re-attach quick pills
+    document.querySelectorAll('.quick-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const input = document.getElementById('threadInput') as HTMLTextAreaElement;
+        if (input) {
+          input.value = (pill as HTMLElement).dataset['prompt'] ?? '';
+          input.focus();
+        }
+      });
+    });
+  }
+}
+
+;(window as any).reopenTicket = async function(ticketId: string): Promise<void> {
+  try {
+    await fetch(
+      `https://legacy-fusion-support.hector-0b9.workers.dev/support/tickets/${ticketId}/stage`,
+      {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ stage: 'triaged' }),
+      }
+    );
+  } catch (e) {
+    console.warn('[reopenTicket] failed:', e);
+  }
+
+  // Restore active input state
+  showActiveInputState();
+
+  // Update ticket status in cache
+  const ticket = myTicketsCache.find(t => t.id === ticketId);
+  if (ticket) ticket.status = 'triaged';
+
+  // Refresh My Tickets sidebar
+  await loadMyTickets();
+
+  // Focus input
+  document.getElementById('threadInput')?.focus();
+};
 
 // ---------------------------------------------------------------------------
 // Intake flow
