@@ -1494,3 +1494,109 @@
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
+
+/* ── Collapsible filter dropdowns ────────────────────────────────────────── */
+.filter-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8fa4b5;
+  padding: 12px 12px 4px;
+}
+
+.filter-dropdown {
+  position: relative;
+  margin: 0 8px 8px;
+}
+
+.filter-dropdown-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: #8fa4b5;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+}
+
+.filter-dropdown-trigger:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.filter-dropdown-trigger.active {
+  border-color: rgba(245,166,35,0.4);
+  color: #f5a623;
+  background: rgba(245,166,35,0.08);
+}
+
+.filter-dropdown-trigger.open .filter-dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.filter-dropdown-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-dropdown-chevron {
+  font-size: 10px;
+  opacity: 0.6;
+  flex-shrink: 0;
+  margin-left: 6px;
+  transition: transform 0.15s;
+}
+
+.filter-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #0f172a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.filter-dropdown-menu.hidden { display: none; }
+
+.filter-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #8fa4b5;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filter-dropdown-item:hover {
+  background: rgba(255,255,255,0.05);
+  color: #e2e8f0;
+}
+
+.filter-dropdown-item.selected {
+  color: #f5a623;
+  background: rgba(245,166,35,0.08);
+  font-weight: 600;
+}

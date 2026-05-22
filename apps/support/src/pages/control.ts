@@ -509,6 +509,135 @@ document.querySelectorAll('.queue-item').forEach(item => {
 });
 
 // ---------------------------------------------------------------------------
+// Unified filter dropdown system
+// ---------------------------------------------------------------------------
+let openDropdown: string | null = null;
+
+function closeAllDropdowns(): void {
+  ['priority', 'category', 'status', 'source', 'account'].forEach(key => {
+    const menu    = document.getElementById(`dropdown-menu-${key}`);
+    const trigger = document.getElementById(`dropdown-trigger-${key}`);
+    if (menu)    menu.classList.add('hidden');
+    if (trigger) trigger.classList.remove('open');
+  });
+  // Also close legacy account dropdown
+  accountDropdownOpen = false;
+  const accMenu = document.getElementById('accountDropdownMenu');
+  if (accMenu) accMenu.classList.add('hidden');
+  openDropdown = null;
+}
+
+;(window as any).toggleFilterDropdown = function(key: string): void {
+  if (openDropdown === key) {
+    closeAllDropdowns();
+    return;
+  }
+  closeAllDropdowns();
+  openDropdown = key;
+  const menu    = document.getElementById(`dropdown-menu-${key}`);
+  const trigger = document.getElementById(`dropdown-trigger-${key}`);
+  if (menu)    menu.classList.remove('hidden');
+  if (trigger) trigger.classList.add('open');
+};
+
+;(window as any).selectFilterOption = function(
+  type: string,
+  value: string | null,
+  label: string
+): void {
+  closeAllDropdowns();
+
+  if (value === null) {
+    if (activeFilter?.type === type) {
+      activeFilter = { type: 'unassigned', value: 'unassigned' };
+      document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
+      document.querySelector('.queue-item[data-filter="unassigned"]')?.classList.add('active');
+    }
+  } else {
+    activeFilter = { type, value };
+    document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'));
+  }
+
+  // Update trigger label + active state
+  const trigger = document.getElementById(`dropdown-trigger-${type}`);
+  if (trigger) {
+    const labelEl = trigger.querySelector('.filter-dropdown-label');
+    if (labelEl) labelEl.textContent = value ? label : 'All';
+    trigger.classList.toggle('active', !!value);
+  }
+
+  renderTicketList(liveTickets);
+  updateCounts(liveTickets);
+};
+
+function renderFilterDropdowns(): void {
+  const PRIORITY_OPTIONS = [
+    { value: 'urgent',   label: 'Urgent' },
+    { value: 'high',     label: 'High' },
+    { value: 'medium',   label: 'Medium' },
+    { value: 'low',      label: 'Low' },
+  ];
+  const CATEGORY_OPTIONS = [
+    { value: 'billing',   label: 'Billing' },
+    { value: 'technical', label: 'Technical' },
+    { value: 'general',   label: 'General' },
+  ];
+  const STATUS_OPTIONS = [
+    { value: 'new',               label: 'New' },
+    { value: 'triaged',           label: 'Triaged' },
+    { value: 'in_progress',       label: 'In Progress' },
+    { value: 'waiting_client',    label: 'Waiting on Client' },
+    { value: 'waiting_internal',  label: 'Waiting on Internal' },
+    { value: 'escalated',         label: 'Escalated' },
+    { value: 'resolved',          label: 'Resolved' },
+    { value: 'closed',            label: 'Closed' },
+  ];
+  const SOURCE_OPTIONS = [
+    { value: 'chat',   label: 'Chat' },
+    { value: 'manual', label: 'Manual' },
+  ];
+
+  const groups = [
+    { key: 'priority', label: 'Priority', options: PRIORITY_OPTIONS },
+    { key: 'category', label: 'Category', options: CATEGORY_OPTIONS },
+    { key: 'status',   label: 'Status',   options: STATUS_OPTIONS   },
+    { key: 'source',   label: 'Source',   options: SOURCE_OPTIONS   },
+  ];
+
+  groups.forEach(({ key, label, options }) => {
+    const container = document.getElementById(`filter-group-${key}`);
+    if (!container) return;
+
+    const currentValue = activeFilter?.type === key ? activeFilter.value as string : null;
+    const currentLabel = options.find(o => o.value === currentValue)?.label ?? 'All';
+
+    container.innerHTML = `
+      <div class="filter-group-title">${label}</div>
+      <div class="filter-dropdown">
+        <button id="dropdown-trigger-${key}"
+          class="filter-dropdown-trigger${currentValue ? ' active' : ''}"
+          onclick="window.toggleFilterDropdown('${key}')">
+          <span class="filter-dropdown-label">${currentLabel}</span>
+          <span class="filter-dropdown-chevron">▾</span>
+        </button>
+        <div id="dropdown-menu-${key}" class="filter-dropdown-menu hidden">
+          <button class="filter-dropdown-item${!currentValue ? ' selected' : ''}"
+            onclick="window.selectFilterOption('${key}', null, 'All')">
+            All ${label}
+          </button>
+          ${options.map(o => `
+            <button class="filter-dropdown-item${o.value === currentValue ? ' selected' : ''}"
+              onclick="window.selectFilterOption('${key}', '${o.value}', '${o.label}')">
+              ${o.label}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Account filter — dynamic dropdown, built after fetchLiveTickets populates liveTickets
 // ---------------------------------------------------------------------------
 function renderAccountFilters(): void {
@@ -595,12 +724,24 @@ function renderAccountFilters(): void {
 
 // Close dropdown on outside click
 document.addEventListener('click', (e: MouseEvent) => {
-  if (!accountDropdownOpen) return;
-  const dropdown = document.getElementById('accountDropdown');
-  if (dropdown && !dropdown.contains(e.target as Node)) {
-    accountDropdownOpen = false;
-    const menu = document.getElementById('accountDropdownMenu');
-    if (menu) menu.classList.add('hidden');
+  // Close account dropdown on outside click
+  if (accountDropdownOpen) {
+    const dropdown = document.getElementById('accountDropdown');
+    if (dropdown && !dropdown.contains(e.target as Node)) {
+      accountDropdownOpen = false;
+      const menu = document.getElementById('accountDropdownMenu');
+      if (menu) menu.classList.add('hidden');
+    }
+  }
+  // Close filter dropdowns on outside click
+  if (openDropdown && openDropdown !== 'account') {
+    const menu    = document.getElementById(`dropdown-menu-${openDropdown}`);
+    const trigger = document.getElementById(`dropdown-trigger-${openDropdown}`);
+    if (menu && trigger &&
+        !menu.contains(e.target as Node) &&
+        !trigger.contains(e.target as Node)) {
+      closeAllDropdowns();
+    }
   }
 });
 
@@ -884,6 +1025,7 @@ async function fetchLiveTickets() {
     document.querySelector('.queue-item[data-filter="unassigned"][data-value="unassigned"]')?.classList.add('active');
     renderTicketList(liveTickets);
     renderAccountFilters();
+    renderFilterDropdowns();
     // Open first unassigned ticket, fallback to first ticket overall
     const first = liveTickets.find((t: any) => !t.assignedTo) ?? liveTickets[0];
     if (first) await loadWorkspace(first);
@@ -918,6 +1060,7 @@ async function silentRefresh() {
     } else {
       renderTicketList(liveTickets);
       renderAccountFilters();
+      renderFilterDropdowns();
     }
 
     // Flash only genuinely new tickets

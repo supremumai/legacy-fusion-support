@@ -53,89 +53,19 @@
         </span>
       </div>
 
-      <!-- Priority -->
+      <!-- Unassigned quick-filter (kept as queue-item) -->
       <div class="queue-section">
-        <div class="queue-section-label">Priority</div>
-        <button class="queue-item" data-filter="priority" data-value="urgent">
-          <span>Urgent</span>
-          <span class="filter-count badge-pill" id="count-urgent">0</span>
-        </button>
-        <button class="queue-item" data-filter="priority" data-value="high">
-          <span>High</span>
-          <span class="filter-count badge-pill" id="count-high">0</span>
-        </button>
         <button class="queue-item active" data-filter="unassigned" data-value="unassigned">
           <span>Unassigned</span>
           <span class="filter-count badge-pill" id="count-unassigned">0</span>
         </button>
       </div>
 
-      <!-- Category -->
-      <div class="queue-section">
-        <div class="queue-section-label">Category</div>
-        <button class="queue-item" data-filter="category" data-value="billing">
-          <span>Billing</span>
-          <span class="filter-count badge-pill" id="count-billing">0</span>
-        </button>
-        <button class="queue-item" data-filter="category" data-value="technical">
-          <span>Technical</span>
-          <span class="filter-count badge-pill" id="count-technical">0</span>
-        </button>
-        <button class="queue-item" data-filter="category" data-value="general">
-          <span>General</span>
-          <span class="filter-count badge-pill" id="count-general">0</span>
-        </button>
-      </div>
-
-      <!-- Status -->
-      <div class="queue-section">
-        <div class="queue-section-label">Status</div>
-        <button class="queue-item" data-filter="status" data-value="new">
-          <span>New</span>
-          <span class="filter-count badge-pill" id="count-new">0</span>
-        </button>
-        <button class="queue-item" data-filter="status" data-value="triaged">
-          <span>Triaged</span>
-          <span class="filter-count badge-pill" id="count-triaged">0</span>
-        </button>
-        <button class="queue-item" data-filter="status" data-value="in_progress">
-          <span>In Progress</span>
-          <span class="filter-count badge-pill" id="count-in_progress">0</span>
-        </button>
-        <button class="queue-item" data-filter="status" data-value="waiting_client">
-          <span>Waiting Client</span>
-          <span class="filter-count badge-pill" id="count-waiting_client">0</span>
-        </button>
-        <button class="queue-item" data-filter="status" data-value="waiting_internal">
-          <span>Waiting Internal</span>
-          <span class="filter-count badge-pill" id="count-waiting_internal">0</span>
-        </button>
-        <button class="queue-item" data-filter="status" data-value="escalated">
-          <span>Escalated</span>
-          <span class="filter-count badge-pill" id="count-escalated">0</span>
-        </button>
-        <button class="queue-item" data-filter="status" data-value="resolved">
-          <span>Resolved</span>
-          <span class="filter-count badge-pill" id="count-resolved">0</span>
-        </button>
-        <button class="queue-item" data-filter="status" data-value="closed">
-          <span>Closed</span>
-          <span class="filter-count badge-pill" id="count-closed">0</span>
-        </button>
-      </div>
-
-      <!-- Source -->
-      <div class="queue-section">
-        <div class="queue-section-label">Source</div>
-        <button class="queue-item" data-filter="source" data-value="chat">
-          <span>Chat</span>
-          <span class="filter-count badge-pill" id="count-source-chat">0</span>
-        </button>
-        <button class="queue-item" data-filter="source" data-value="manual">
-          <span>Manual</span>
-          <span class="filter-count badge-pill" id="count-source-manual">0</span>
-        </button>
-      </div>
+      <!-- Filter dropdowns — populated by renderFilterDropdowns() -->
+      <div id="filter-group-priority"></div>
+      <div id="filter-group-category"></div>
+      <div id="filter-group-status"></div>
+      <div id="filter-group-source"></div>
 
     </aside>
 
