@@ -186,6 +186,104 @@ function mapContactToContact(c: Record<string, unknown>): Contact {
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// LegacyZero auto-response — called server-side immediately after ticket insert
+// ---------------------------------------------------------------------------
+async function autoRespondToTicket(params: {
+  ticketId:    string;
+  title:       string;
+  category:    string;
+  subcategory: string;
+  description: string;
+  locationId:  string;
+  kbEntries:   Array<{ problem: string; solution: string; category: string; tags: string[] }>;
+  env:         Env;
+}): Promise<{ response: string; resolved: boolean; resolution_note: string | null }> {
+  const { title, category, subcategory, description, kbEntries, env } = params;
+
+  const kbContext = kbEntries.length > 0
+    ? '\n\nKNOWLEDGE BASE (use to resolve if relevant):\n' +
+      kbEntries.map((e, i) =>
+        `[${i + 1}] Problem: ${e.problem}\n` +
+        `     Solution: ${e.solution}\n` +
+        `     Tags: ${(e.tags ?? []).join(', ')}`
+      ).join('\n\n')
+    : '\n\nKNOWLEDGE BASE: No relevant entries found.';
+
+  const systemPrompt =
+    `You are LegacyZero, an AI support assistant for ` +
+    `Legacy Fusion, a GoHighLevel-based CRM platform.\n\n` +
+    `A customer just submitted a support ticket. Your job:\n` +
+    `1. Analyze the issue carefully\n` +
+    `2. Check the knowledge base for relevant solutions\n` +
+    `3. If you can fully resolve it, provide a clear solution\n` +
+    `4. If not, acknowledge and say an agent will help\n\n` +
+    `RULES:\n` +
+    `- Plain text only — no markdown, no bullets, no asterisks\n` +
+    `- Be concise, warm, and professional\n` +
+    `- Only mark resolved if you have a confident complete solution\n` +
+    `- Respond in the same language the customer used\n\n` +
+    `Respond with valid JSON only — no other text:\n` +
+    `{"response":"your message","resolved":true or false,` +
+    `"resolution_note":"brief summary or null"}` +
+    kbContext;
+
+  const userMessage =
+    `Ticket: ${title}\n` +
+    `Category: ${category} — ${subcategory}\n` +
+    `Customer description: ${description}`;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type':      'application/json',
+      'x-api-key':         env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model:      'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      system:     systemPrompt,
+      messages:   [{ role: 'user', content: userMessage }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Anthropic API error: ${res.status} ${err.slice(0, 200)}`);
+  }
+
+  const data = await res.json() as {
+    content: Array<{ type: string; text: string }>;
+  };
+  const raw = data.content
+    .filter((b: any) => b.type === 'text')
+    .map((b: any) => b.text)
+    .join('')
+    .trim();
+
+  try {
+    const cleaned = raw
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+    const parsed = JSON.parse(cleaned) as {
+      response:        string;
+      resolved:        boolean;
+      resolution_note: string | null;
+    };
+    return parsed;
+  } catch {
+    console.error('[autoRespond] JSON parse failed:', raw.slice(0, 300));
+    return {
+      response:        raw || 'Thank you for contacting support. An agent will review your case shortly.',
+      resolved:        false,
+      resolution_note: null,
+    };
+  }
+}
+
 // POST /ghl/tickets/create
 async function createTicket(req: Request, env: Env, origin: string): Promise<Response> {
   const body = await req.json<{
@@ -283,26 +381,151 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
 
   console.log('[createTicket] created in Supabase:', internalId);
 
-  // Notify agent via GHL SMS (fire-and-forget — never blocks)
-  const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
-  if (agentContactId) {
-    fetch(`${GHL_V2_BASE}/conversations/messages`, {
-      method:  'POST',
-      headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
-      body:    JSON.stringify({
-        type:      'SMS',
-        contactId: agentContactId,
-        message:   `New support ticket: ${body.title}\n` +
-                   `Category: ${body.category ?? 'general'}\n` +
-                   `Priority: ${body.priority ?? 'medium'}\n` +
-                   `Summary: ${body.summary ?? ''}`,
+  // Step 4 — LegacyZero auto-response (non-fatal)
+  try {
+    // Fetch KB entries by category
+    const kbRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/knowledge_base` +
+      `?category=eq.${encodeURIComponent(body.category ?? '')}` +
+      `&order=created_at.desc&limit=5` +
+      `&select=problem,solution,category,tags`,
+      {
+        headers: {
+          'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+    const kbEntries = kbRes.ok
+      ? await kbRes.json() as Array<{ problem: string; solution: string; category: string; tags: string[] }>
+      : [];
+
+    console.log('[autoRespond] KB entries:', kbEntries.length);
+
+    const aiResult = await autoRespondToTicket({
+      ticketId:    internalId,
+      title:       body.title ?? '',
+      category:    body.category ?? 'general',
+      subcategory: body.subcategory ?? '',
+      description: body.summary ?? '',
+      locationId:  body.locationId,
+      kbEntries,
+      env,
+    });
+
+    console.log('[autoRespond] resolved:', aiResult.resolved);
+
+    // Persist AI message to support_messages
+    await fetch(`${env.SUPABASE_URL}/rest/v1/support_messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify({
+        ticket_id:   internalId,
+        role:        'ai',
+        content:     aiResult.response,
+        is_internal: false,
+        location_id: body.locationId,
       }),
-    })
-      .then(r => console.log('[notify] agent SMS sent:', r.status))
-      .catch(e => console.warn('[notify] agent SMS failed:', e));
+    });
+
+    // Update ticket status
+    const newStatus = aiResult.resolved ? 'resolved' : 'triaged';
+    await fetch(
+      `${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${internalId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type':  'application/json',
+          'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'Prefer':        'return=minimal',
+        },
+        body: JSON.stringify({
+          status:          newStatus,
+          resolved_by_ai:  aiResult.resolved,
+          updated_at:      new Date().toISOString(),
+        }),
+      }
+    );
+
+    // Notify agent via GHL SMS (fire-and-forget — never blocks)
+    const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
+    if (agentContactId) {
+      fetch(`${GHL_V2_BASE}/conversations/messages`, {
+        method:  'POST',
+        headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+        body:    JSON.stringify({
+          type:      'SMS',
+          contactId: agentContactId,
+          message:   `New support ticket: ${body.title}\n` +
+                     `Category: ${body.category ?? 'general'}\n` +
+                     `Priority: ${body.priority ?? 'medium'}\n` +
+                     `Summary: ${body.summary ?? ''}`,
+        }),
+      })
+        .then(r => console.log('[notify] agent SMS sent:', r.status))
+        .catch(e => console.warn('[notify] agent SMS failed:', e));
+    }
+
+    return json({
+      ticketId:        internalId,
+      ghlContactId,
+      aiResponse:      aiResult.response,
+      aiResolved:      aiResult.resolved,
+      resolutionNote:  aiResult.resolution_note,
+    }, 201, origin);
+
+  } catch (aiErr) {
+    console.error('[autoRespond] failed (non-fatal):', aiErr);
+
+    // Fallback: set triaged
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${internalId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type':  'application/json',
+          'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'Prefer':        'return=minimal',
+        },
+        body: JSON.stringify({ status: 'triaged', updated_at: new Date().toISOString() }),
+      }
+    ).catch(() => {});
+
+    // Notify agent via GHL SMS on fallback path too (fire-and-forget)
+    const agentContactIdFallback = env.GHL_AGENT_CONTACT_ID ?? '';
+    if (agentContactIdFallback) {
+      fetch(`${GHL_V2_BASE}/conversations/messages`, {
+        method:  'POST',
+        headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
+        body:    JSON.stringify({
+          type:      'SMS',
+          contactId: agentContactIdFallback,
+          message:   `New support ticket: ${body.title}\n` +
+                     `Category: ${body.category ?? 'general'}\n` +
+                     `Priority: ${body.priority ?? 'medium'}\n` +
+                     `Summary: ${body.summary ?? ''}`,
+        }),
+      })
+        .then(r => console.log('[notify] agent SMS sent (fallback):', r.status))
+        .catch(e => console.warn('[notify] agent SMS failed (fallback):', e));
+    }
+
+    return json({
+      ticketId:       internalId,
+      ghlContactId,
+      aiResponse:     null,
+      aiResolved:     false,
+      resolutionNote: null,
+    }, 201, origin);
   }
 
-  return json({ ticketId: internalId }, 201, origin);
 }
 
 // PATCH /ghl/tickets/:id/status

@@ -855,27 +855,86 @@ async function uploadTicketImage(file: File): Promise<string | null> {
   }
 }
 
-function showTicketConfirmation(ticketId: string): void {
+function showTicketConfirmation(
+  ticketId:   string,
+  aiResponse: string | null,
+  aiResolved: boolean
+): void {
   document.getElementById('formStepCategory')!.classList.add('hidden');
   document.getElementById('formStepSubcategory')!.classList.add('hidden');
   document.getElementById('formStepDetails')!.classList.add('hidden');
 
   const header = document.querySelector('.ticket-form-header');
-  if (header) {
-    header.innerHTML = `
-      <div class="ticket-confirm-icon">✓</div>
-      <h2 class="ticket-form-title">Ticket Created</h2>
-      <p class="ticket-form-subtitle">
-        Your ticket <strong>${ticketId}</strong> has been submitted to our Support Center.
-        Our team will review it shortly.
-      </p>
-      <button class="create-ticket-btn" style="margin-top:24px"
-        onclick="window.startNewChat()">
-        + New Ticket
-      </button>
-    `;
-  }
+  if (!header) return;
+
+  const aiBlock = aiResponse ? `
+    <div class="ai-response-block">
+      <div class="ai-response-label">
+        <span class="ai-dot">⬡</span> LegacyZero
+      </div>
+      <p class="ai-response-text">${aiResponse}</p>
+      ${aiResolved ? `
+        <div class="ai-resolution-actions">
+          <p class="ai-resolution-question">Did this resolve your issue?</p>
+          <div class="ai-resolution-buttons">
+            <button class="ai-btn-resolved"
+              onclick="window.confirmResolved('${ticketId}', true)">
+              ✓ Yes, resolved
+            </button>
+            <button class="ai-btn-not-resolved"
+              onclick="window.confirmResolved('${ticketId}', false)">
+              ✗ I still need help
+            </button>
+          </div>
+        </div>
+      ` : `
+        <p class="ai-agent-note">An agent will review your case shortly.</p>
+      `}
+    </div>
+  ` : '';
+
+  header.innerHTML = `
+    <div class="ticket-confirm-icon">✓</div>
+    <h2 class="ticket-form-title">Ticket Created</h2>
+    <p class="ticket-form-subtitle">
+      Ticket <strong>${ticketId}</strong> has been submitted to our Support Center.
+    </p>
+    ${aiBlock}
+    <button class="create-ticket-btn" style="margin-top:20px"
+      onclick="window.startNewChat()">
+      + New Ticket
+    </button>
+  `;
 }
+
+;(window as any).confirmResolved = async function(
+  ticketId:  string,
+  confirmed: boolean
+): Promise<void> {
+  if (!confirmed) {
+    try {
+      await fetch(
+        `https://legacy-fusion-support.hector-0b9.workers.dev/support/tickets/${ticketId}/stage`,
+        {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ stage: 'triaged' }),
+        }
+      );
+    } catch (e) {
+      console.warn('[confirmResolved] patch failed:', e);
+    }
+  }
+
+  const actions = document.querySelector('.ai-resolution-actions');
+  if (actions) {
+    actions.innerHTML = confirmed
+      ? '<p class="ai-agent-note resolved-confirmed">✓ Great! Your ticket has been marked as resolved.</p>'
+      : '<p class="ai-agent-note">Understood. An agent will follow up shortly.</p>';
+  }
+
+  loadMyTickets().catch(() => {});
+};
 
 ;(window as any).submitTicketForm = async function(): Promise<void> {
   clearTicketFormError();
@@ -923,8 +982,12 @@ function showTicketConfirmation(ticketId: string): void {
     selectedSubcategory = null;
     uploadedImages      = [];
 
-    // Show confirmation — Batch A3 will wire LegacyZero auto-response here
-    showTicketConfirmation(ticket.id);
+    // Show confirmation with AI response
+    showTicketConfirmation(
+      (ticket as any).ticketId ?? ticket.id,
+      (ticket as any).aiResponse ?? null,
+      (ticket as any).aiResolved ?? false
+    );
 
     // Refresh My Tickets sidebar
     loadMyTickets().catch(() => {});

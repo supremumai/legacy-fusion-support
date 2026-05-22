@@ -64,7 +64,13 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
 
   console.log('[ghl] createTicket params:', JSON.stringify(params));
 
-  const result = await workerFetch<{ ticketId: string }>(
+  const result = await workerFetch<{
+    ticketId:       string;
+    ghlContactId:   string | null;
+    aiResponse:     string | null;
+    aiResolved:     boolean;
+    resolutionNote: string | null;
+  }>(
     '/ghl/tickets/create',
     {
       method: 'POST',
@@ -84,19 +90,24 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
     }
   );
 
-  console.log('[ghl] createTicket result — ticketId:', result.ticketId);
+  console.log('[ghl] createTicket result — ticketId:', result.ticketId, '| aiResolved:', result.aiResolved);
 
   return {
     id:               result.ticketId,
+    ticketId:         result.ticketId,
+    ghlContactId:     result.ghlContactId ?? null,
+    aiResponse:       result.aiResponse ?? null,
+    aiResolved:       result.aiResolved ?? false,
+    resolutionNote:   result.resolutionNote ?? null,
     ghlOpportunityId: result.ticketId,
-    title:            params.title,
-    category:         params.category,
-    priority:         params.priority,
-    status:           'new',
-    slaDeadline:      new Date(Date.now() + 48 * 3600000),
+    title:            params.title ?? '',
+    status:           result.aiResolved ? 'resolved' : 'triaged',
+    priority:         (params as any).priority ?? 'medium',
+    category:         (params as any).category ?? 'general',
+    slaDeadline:      new Date(Date.now() + 24 * 3600000),
     createdAt:        new Date(),
     updatedAt:        new Date(),
-  } as Ticket;
+  } as any as Ticket;
 }
 
 // ---------------------------------------------------------------------------
