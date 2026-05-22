@@ -354,6 +354,7 @@ async function subscribeTicket(ticketId: string) {
 // Load ticket
 // ---------------------------------------------------------------------------
 async function loadTicket(ticket: any) {
+  resolutionButtonsShown = false;
   activeTicketId = ticket.id;
   renderedMsgIds.clear();
   document.getElementById('activeTicketId')!.textContent      = ticket.id;
@@ -385,6 +386,7 @@ let intakeMessages: any[] = [];
 let aiResponseCount = 0;
 let isSending = false;
 let intakeTempTicketId = '';
+let resolutionButtonsShown = false;
 
 const DEMO_AI_RESPONSES = [
   "Thanks for reaching out. Can you tell me a bit more about the issue — when did it start and what exactly are you seeing?",
@@ -586,12 +588,44 @@ async function handleThreadSend() {
 
   showTyping('messageThread');
   try {
-    const aiText = IS_DEMO ? await mockAIResponse(Math.floor(Math.random() * 2)) : await continueConversation(historyForAI, text);
-    removeTyping();
-    const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
-    appendThreadBubble('ai', aiText, aiMsg.id);
-    if (IS_DEMO) DEMO_DATA.messages[activeTicketId!].push(aiMsg);
-    else await addMessage(activeTicketId!, 'ai', aiText, currentLocationId, false);
+    if (IS_DEMO) {
+      const aiText = await mockAIResponse(Math.floor(Math.random() * 2));
+      removeTyping();
+      const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
+      appendThreadBubble('ai', aiText, aiMsg.id);
+      DEMO_DATA.messages[activeTicketId!].push(aiMsg);
+    } else {
+      // Call Worker directly to get resolved flag alongside response
+      const workerRes = await fetch(
+        'https://legacy-fusion-support.hector-0b9.workers.dev/ai/chat',
+        {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: historyForAI.map((m: any) => ({
+              role:    m.role === 'ai' ? 'assistant' : 'user',
+              content: m.content,
+            })),
+            systemPrompt: 'You are LegacyZero, the AI support agent for Legacy Fusion.',
+          }),
+        }
+      );
+      if (!workerRes.ok) throw new Error(`AI call failed: ${workerRes.status}`);
+      const workerData = await workerRes.json() as { response: string; resolved: boolean };
+      const aiText     = workerData.response;
+      const aiResolved = workerData.resolved ?? false;
+
+      removeTyping();
+      const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
+      appendThreadBubble('ai', aiText, aiMsg.id);
+      await addMessage(activeTicketId!, 'ai', aiText, currentLocationId, false);
+
+      // Show resolution buttons if LegacyZero signalled resolved
+      if (aiResolved && !resolutionButtonsShown && activeTicketId) {
+        resolutionButtonsShown = true;
+        showThreadResolutionButtons(activeTicketId);
+      }
+    }
   } catch (err) {
     removeTyping();
     appendThreadBubble('ai', 'Sorry, something went wrong. Please try again.');
@@ -611,6 +645,65 @@ function appendThreadBubble(role: string, content: string, msgId: string | null 
   thread.appendChild(el);
   thread.scrollTop = thread.scrollHeight;
 }
+
+// ---------------------------------------------------------------------------
+// Thread resolution buttons — shown when LegacyZero signals [RESOLVED]
+// ---------------------------------------------------------------------------
+function showThreadResolutionButtons(ticketId: string): void {
+  const thread = document.getElementById('messageThread');
+  if (!thread) return;
+
+  const el = document.createElement('div');
+  el.id        = 'threadResolutionButtons';
+  el.className = 'thread-resolution-wrap';
+  el.innerHTML = `
+    <p class="thread-resolution-question">Did LegacyZero resolve your issue?</p>
+    <div class="thread-resolution-buttons">
+      <button class="ai-btn-resolved"
+        onclick="window.confirmThreadResolved('${ticketId}', true)">
+        ✓ Yes, this resolved my issue
+      </button>
+      <button class="ai-btn-not-resolved"
+        onclick="window.confirmThreadResolved('${ticketId}', false)">
+        ✗ I still need help with this
+      </button>
+    </div>
+  `;
+  thread.appendChild(el);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+;(window as any).confirmThreadResolved = async function(
+  ticketId: string,
+  resolved: boolean
+): Promise<void> {
+  const el = document.getElementById('threadResolutionButtons');
+
+  try {
+    await fetch(
+      `https://legacy-fusion-support.hector-0b9.workers.dev/support/tickets/${ticketId}/stage`,
+      {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ stage: resolved ? 'resolved' : 'triaged' }),
+      }
+    );
+  } catch (e) {
+    console.warn('[confirmThreadResolved] failed:', e);
+  }
+
+  if (el) {
+    el.innerHTML = resolved
+      ? '<p class="ai-agent-note resolved-confirmed">✓ Your ticket has been marked as resolved. Thank you for using Legacy Fusion support!</p>'
+      : '<p class="ai-agent-note">An agent will follow up with you shortly.</p>';
+  }
+
+  // Allow buttons to re-appear if conversation continues
+  resolutionButtonsShown = false;
+
+  // Refresh My Tickets sidebar
+  loadMyTickets().catch(() => {});
+};
 
 // ---------------------------------------------------------------------------
 // New Chat — reset intake state and return to welcome screen

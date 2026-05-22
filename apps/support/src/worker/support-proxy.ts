@@ -1026,6 +1026,7 @@ Rules:
 - Be warm, concise, and professional
 - Do not start every message with "Hi there!" or "Hello!"
 - Vary your greetings naturally
+- If you believe the customer's issue has been fully resolved based on their last message (they confirmed it's working, said thank you and the issue is gone, or explicitly said it's fixed), append the exact token [RESOLVED] on a new line at the very end of your response — nothing after it. Only do this when clearly resolved. Never add [RESOLVED] speculatively.
 
 `;
   const effectiveSystemPrompt = CONVERSATION_STYLE_PREFIX + systemPrompt;
@@ -1086,18 +1087,23 @@ Rules:
     const rawText = data.content?.[0]?.text ?? '';
     if (!rawText) {
       console.warn('[ai/chat] empty content from Anthropic, content:', JSON.stringify(data.content));
-      return json({ response: '', error: 'empty content from Anthropic' }, 200, origin);
+      return json({ response: '', resolved: false, error: 'empty content from Anthropic' }, 200, origin);
     }
 
     // Strip markdown formatting before returning to client
-    const text = rawText
+    const stripped = rawText
       .replace(/#{1,6}\s/g, '')            // remove headers (## Heading)
       .replace(/\*\*(.*?)\*\*/g, '$1')     // remove bold (**text**)
       .replace(/\*(.*?)\*/g, '$1')         // remove italic (*text*)
       .replace(/^\s*[-•]\s/gm, '')         // remove bullet points
       .trim();
 
-    return json({ response: text }, 200, origin);
+    // Detect and strip resolution marker
+    const RESOLVED_MARKER = '[RESOLVED]';
+    const isResolved = stripped.includes(RESOLVED_MARKER);
+    const text = stripped.replace(RESOLVED_MARKER, '').trim();
+
+    return json({ response: text, resolved: isResolved }, 200, origin);
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
