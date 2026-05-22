@@ -238,17 +238,19 @@ function renderTicketList(tickets?: any[]) {
     row.className = 'ticket-row' + (ticket.id === activeTicketId ? ' active' : '');
     row.dataset['ticketId'] = ticket.id;
     const urgent = slaIsUrgent(ticket.slaDeadline);
-    const displayName  = ticket.contactName ?? ticket.contact?.name ?? 'Unknown';
-    const priority     = ticket.priority ?? 'medium';
-    const category     = ticket.category ?? 'general';
+    const priority      = ticket.priority ?? 'medium';
+    const category      = ticket.category ?? 'general';
     const priorityColor = PRIORITY_COLORS[priority] ?? '#8fa4b5';
+    const truncTitle    = (ticket.title ?? '').length > 40
+      ? (ticket.title as string).slice(0, 40) + '…'
+      : (ticket.title ?? '');
     row.innerHTML = `
       <div class="ticket-row-top">
         <span class="priority-dot" style="background:${priorityColor}"></span>
-        <span class="ticket-row-contact">${displayName}</span>
+        <span class="ticket-row-account">${ticket.accountName ?? '—'}</span>
         ${ticket.assignedTo ? `<span class="agent-avatar">${ticket.assignedTo}</span>` : '<span class="agent-avatar unassigned">—</span>'}
       </div>
-      <div class="ticket-row-snippet">${ticket.title}</div>
+      <div class="ticket-row-title">${truncTitle}</div>
       <div class="ticket-row-bottom">
         <span class="badge-pill badge-cyan ticket-cat-badge">${category}</span>
         ${ticket.accountName && ticket.accountName !== '—' ? `<span class="account-badge">${ticket.accountName}</span>` : ''}
@@ -314,6 +316,29 @@ async function loadWorkspace(ticket: any) {
   activeTicketId = ticket.id;
   document.getElementById('wsTicketId')!.textContent      = ticket.contactName ?? ticket.contact?.name ?? 'Unknown';
   document.getElementById('wsSubject')!.textContent       = ticket.title;
+
+  // Render workspace header pills
+  const subcategoryDisplay = ticket.subcategory
+    ? (ticket.subcategory as string)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c: string) => c.toUpperCase())
+    : null;
+  const wsPillDefs = [
+    { label: ticket.accountName,   color: '#a78bfa' },
+    { label: ticket.contactName,   color: '#06b6d4' },
+    { label: ticket.category
+        ? (ticket.category as string).charAt(0).toUpperCase() + (ticket.category as string).slice(1)
+        : null,
+      color: '#f59e0b' },
+    { label: subcategoryDisplay,   color: '#8fa4b5' },
+  ].filter((p): p is { label: string; color: string } => !!p.label && p.label !== '—');
+  const pillsEl = document.getElementById('wsPills');
+  if (pillsEl) {
+    pillsEl.innerHTML = wsPillDefs.map(p =>
+      `<span class="ws-pill" style="border-color:${p.color}22;color:${p.color};background:${p.color}11">${p.label}</span>`
+    ).join('');
+  }
+
   const s = ticket.aiSummary;
   document.getElementById('aiCategory')!.textContent     = s?.category ?? ticket.category ?? '—';
   const priorityEl = document.getElementById('aiPriority')!;
