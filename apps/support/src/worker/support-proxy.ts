@@ -1365,15 +1365,18 @@ export default {
     const allowedOrigin = env.SUPPORT_CORS_ORIGIN;
 
     if (method === 'OPTIONS') {
-      if (requestOrigin !== allowedOrigin) return new Response('Forbidden', { status: 403 });
-      return handlePreflight(allowedOrigin);
+      // Allow preflight from the configured origin or any origin if SUPPORT_CORS_ORIGIN is unset
+      const preflightOrigin = (allowedOrigin && requestOrigin === allowedOrigin)
+        ? allowedOrigin
+        : (allowedOrigin || requestOrigin || '*');
+      return handlePreflight(preflightOrigin);
     }
 
-    if (requestOrigin && requestOrigin !== allowedOrigin) {
+    if (requestOrigin && allowedOrigin && requestOrigin !== allowedOrigin) {
       return json({ error: 'Forbidden: origin not allowed' }, 403, '');
     }
 
-    const origin = allowedOrigin;
+    const origin = allowedOrigin || requestOrigin || '*';
 
     if (method === 'POST' && path === '/ai/chat') {
       return handleAIChat(req, env, origin);
