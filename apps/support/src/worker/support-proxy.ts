@@ -111,8 +111,8 @@ async function getPipelineStageMap(env: Env): Promise<Map<string, string>> {
 function corsHeaders(origin: string): HeadersInit {
   return {
     'Access-Control-Allow-Origin':  origin,
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
     'Access-Control-Max-Age':       '86400',
   };
 }
@@ -1365,11 +1365,10 @@ export default {
     const allowedOrigin = env.SUPPORT_CORS_ORIGIN;
 
     if (method === 'OPTIONS') {
-      // Allow preflight from the configured origin or any origin if SUPPORT_CORS_ORIGIN is unset
-      const preflightOrigin = (allowedOrigin && requestOrigin === allowedOrigin)
+      const corsOrigin = (allowedOrigin && allowedOrigin.length > 0)
         ? allowedOrigin
-        : (allowedOrigin || requestOrigin || '*');
-      return handlePreflight(preflightOrigin);
+        : requestOrigin || '*';
+      return handlePreflight(corsOrigin);
     }
 
     if (requestOrigin && allowedOrigin && requestOrigin !== allowedOrigin) {
