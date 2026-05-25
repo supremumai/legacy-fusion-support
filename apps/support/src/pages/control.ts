@@ -25,6 +25,7 @@ let newTicketModalOpen = false;
 let currentView: '3panel' | 'pipeline' = '3panel';
 let stageMap: Record<string, string> = {};
 let accountDropdownOpen = false;
+let assignChangePending = false;
 
 // ---------------------------------------------------------------------------
 // Demo seed data
@@ -986,12 +987,14 @@ const STAGE_COLORS: Record<string, string> = {
 };
 
 ;(window as any).handleAssignChange = async function(agentId: string): Promise<void> {
+  if (assignChangePending) return
   if (!activeTicketId) return
+  assignChangePending = true
 
   const select = document.getElementById('assignSelect') as HTMLSelectElement | null
 
   try {
-    await fetch(
+    const res = await fetch(
       'https://legacy-fusion-support.hector-0b9.workers.dev' +
       `/support/tickets/${activeTicketId}/assign`,
       {
@@ -1000,6 +1003,13 @@ const STAGE_COLORS: Record<string, string> = {
         body: JSON.stringify({ assignedTo: agentId })
       }
     )
+
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error('[assign] failed:', res.status, errText)
+      showToast('Failed to assign agent')
+      return
+    }
 
     const hasAssignee = !!agentId
     if (select) {
@@ -1012,8 +1022,10 @@ const STAGE_COLORS: Record<string, string> = {
 
     showToast(agentId ? 'Agent assigned' : 'Ticket unassigned')
   } catch (err) {
-    console.error('[handleAssignChange]', err)
+    console.error('[assign] error:', err)
     showToast('Failed to assign agent')
+  } finally {
+    assignChangePending = false
   }
 }
 
