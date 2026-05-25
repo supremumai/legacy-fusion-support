@@ -1476,29 +1476,6 @@ export default {
       return json(grouped, 200, origin);
     }
 
-    // GET /support/tickets/:id — return full support_tickets row by ghl_opportunity_id
-    const supportTicketMatch = path.match(/^\/support\/tickets\/([^/]+)$/);
-    if (method === 'GET' && supportTicketMatch) {
-      const ghlOppId = supportTicketMatch[1];
-      const stRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/support_tickets?ghl_opportunity_id=eq.${encodeURIComponent(ghlOppId)}&select=*&limit=1`,
-        {
-          headers: {
-            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
-            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-          },
-        }
-      );
-      if (!stRes.ok) {
-        const detail = await stRes.text();
-        console.error('[support/tickets/:id] fetch failed:', stRes.status, detail);
-        return json({ error: 'ticket fetch failed', detail }, 502, origin);
-      }
-      const rows = await stRes.json() as any[];
-      if (!rows.length) return json({ error: 'not found' }, 404, origin);
-      return json(rows[0], 200, origin);
-    }
-
     // GET /support/tickets/stages?locationId=xxx — return { [ghlOpportunityId]: status } map
     if (method === 'GET' && path === '/support/tickets/stages') {
       const stagesLocationId = url.searchParams.get('locationId');
@@ -1531,6 +1508,29 @@ export default {
 
       console.log('[stages] returning', Object.keys(stageMap).length, 'stages for location:', stagesLocationId);
       return json({ stages: stageMap }, 200, origin);
+    }
+
+    // GET /support/tickets/:id — return full support_tickets row by ghl_opportunity_id
+    const supportTicketMatch = path.match(/^\/support\/tickets\/([^/]+)$/);
+    if (method === 'GET' && supportTicketMatch) {
+      const ghlOppId = supportTicketMatch[1];
+      const stRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?ghl_opportunity_id=eq.${encodeURIComponent(ghlOppId)}&select=*&limit=1`,
+        {
+          headers: {
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        }
+      );
+      if (!stRes.ok) {
+        const detail = await stRes.text();
+        console.error('[support/tickets/:id] fetch failed:', stRes.status, detail);
+        return json({ error: 'ticket fetch failed', detail }, 502, origin);
+      }
+      const rows = await stRes.json() as any[];
+      if (!rows.length) return json({ error: 'not found' }, 404, origin);
+      return json(rows[0], 200, origin);
     }
 
     // PATCH /support/tickets/:id/stage — update pipeline stage in Supabase only
