@@ -1510,12 +1510,12 @@ export default {
       return json({ stages: stageMap }, 200, origin);
     }
 
-    // GET /support/tickets/:id — return full support_tickets row by ghl_opportunity_id
+    // GET /support/tickets/:id — return full support_tickets row by primary key id
     const supportTicketMatch = path.match(/^\/support\/tickets\/([^/]+)$/);
     if (method === 'GET' && supportTicketMatch) {
-      const ghlOppId = supportTicketMatch[1];
+      const ticketId = supportTicketMatch[1];
       const stRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/support_tickets?ghl_opportunity_id=eq.${encodeURIComponent(ghlOppId)}&select=*&limit=1`,
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${encodeURIComponent(ticketId)}&select=*&limit=1`,
         {
           headers: {
             'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
