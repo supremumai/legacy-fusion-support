@@ -1158,9 +1158,21 @@ async function togglePipelineView() {
   if (currentView === '3panel') {
     currentView = 'pipeline';
     // Hide sidebar in pipeline mode
-    document.getElementById('ccSidebar')!.style.display = 'none';
+    const sidebar = document.getElementById('ccSidebar')
+    if (sidebar) {
+      sidebar.style.display = 'none'
+      sidebar.style.width = '0'
+    }
     document.getElementById('workspaceContent')?.classList.add('hidden')
     document.getElementById('workspaceEmpty')?.classList.add('hidden')
+
+    // Ensure ccMain takes full width
+    const main = document.getElementById('ccMain')
+    if (main) {
+      main.style.width = '100%'
+      main.style.maxWidth = '100%'
+      main.style.position = 'relative'
+    }
     btn.textContent = '← Back';
     // Fetch fresh stages from Supabase, merge into liveTickets, then render
     await loadStageMap();
@@ -1169,7 +1181,17 @@ async function togglePipelineView() {
   } else {
     currentView = '3panel';
     // Show sidebar
-    document.getElementById('ccSidebar')!.style.display = '';
+    const sidebar = document.getElementById('ccSidebar')
+    if (sidebar) {
+      sidebar.style.display = ''
+      sidebar.style.width = ''
+    }
+    const main = document.getElementById('ccMain')
+    if (main) {
+      main.style.width = ''
+      main.style.maxWidth = ''
+      main.style.position = ''
+    }
     // Restore workspace visibility
     if (activeTicketId) {
       document.getElementById('workspaceContent')?.classList.remove('hidden')
@@ -1235,7 +1257,17 @@ function buildCard(ticket: any, stageColor: string): HTMLElement {
   card.addEventListener('click', () => {
     // Switch back to 3panel and open this ticket
     currentView = '3panel';
-    document.getElementById('ccSidebar')!.style.display = '';
+    const cardSidebar = document.getElementById('ccSidebar')
+    if (cardSidebar) {
+      cardSidebar.style.display = ''
+      cardSidebar.style.width = ''
+    }
+    const cardMain = document.getElementById('ccMain')
+    if (cardMain) {
+      cardMain.style.width = ''
+      cardMain.style.maxWidth = ''
+      cardMain.style.position = ''
+    }
     document.getElementById('pipeline-board')?.remove();
     const btn = document.getElementById('pipeline-toggle-btn') as HTMLButtonElement;
     if (btn) btn.textContent = '⬡ Pipeline';

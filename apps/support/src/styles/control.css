@@ -961,15 +961,7 @@
 /* ---------------------------------------------------------------------------
    Pipeline Kanban Board
    --------------------------------------------------------------------------- */
-#pipeline-board {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  background: var(--bg-primary, #020b18);
-  height: calc(100vh - 56px);
-  box-sizing: border-box;
-}
+/* #pipeline-board consolidated below */
 
 .pipeline-column {
   min-width: 220px;
@@ -1834,13 +1826,14 @@ body { background: #0d1b2a; }
 }
 
 /* Pipeline board fills main when active */
-#pipeline-board { flex: 1; overflow: hidden; }
-
 #pipeline-board {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Sidebar plain text filters (sf-*) ── */
