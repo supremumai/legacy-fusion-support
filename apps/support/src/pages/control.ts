@@ -224,6 +224,14 @@ function filterTickets(tickets: any[]) {
     if (activeFilter.type === 'account') {
       return t.accountName === activeFilter.value;
     }
+    if (activeFilter.type === 'assignedTo') {
+      const val = activeFilter.value as string
+      if (val === '__unassigned__') {
+        return !t.assignedTo && !t.assigned_to
+      } else {
+        return t.assignedTo === val || t.assigned_to === val
+      }
+    }
     return true;
   });
 }
@@ -661,10 +669,11 @@ function renderFilterDropdowns(): void {
       </div>
     `
   })
+  renderAssignedToFilter()
 }
 
 ;(window as any).toggleSidebarFilter = function(key: string): void {
-  ['priority', 'category', 'status', 'source', 'account']
+  ['priority', 'category', 'status', 'source', 'account', 'assignedto']
     .filter(k => k !== key)
     .forEach(k => {
       document.getElementById(`sf-options-${k}`)?.classList.add('hidden')
@@ -700,6 +709,7 @@ function renderFilterDropdowns(): void {
   renderFilterDropdowns()
   renderTicketList(liveTickets)
   updateCounts(liveTickets)
+  renderAssignedToFilter()
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +752,64 @@ function renderAccountFilters(): void {
         <button class="sf-option ${acc === selectedAccount ? 'sf-option-active' : ''}"
           onclick="window.setSidebarFilter('account', '${acc.replace(/'/g, "\\'")}', '${acc.replace(/'/g, "\\'")}')">
           ${acc}
+        </button>
+      `).join('')}
+    </div>
+  `
+}
+
+function renderAssignedToFilter(): void {
+  const container = document.getElementById('filter-group-assignedto')
+  if (!container) return
+
+  // Get unique assigned agent values from liveTickets
+  const assignedIds = [...new Set(
+    liveTickets
+      .map((t: any) => t.assignedTo ?? t.assigned_to)
+      .filter((v: any) => v && v !== '')
+  )] as string[]
+
+  // Map IDs/values to display names using agentList
+  const assignedAgents = assignedIds.map(id => {
+    const agent = agentList.find((a: any) => a.id === id || a.name === id)
+    return { value: id, label: agent?.name ?? id }
+  })
+
+  if (assignedAgents.length === 0) {
+    container.innerHTML = ''
+    return
+  }
+
+  const currentValue = activeFilter?.type === 'assignedTo'
+    ? activeFilter.value as string
+    : null
+
+  const currentLabel = currentValue === '__unassigned__'
+    ? 'Unassigned'
+    : assignedAgents.find(a => a.value === currentValue)?.label ?? null
+
+  const wasOpen = container.querySelector('.sf-options') !== null &&
+    !container.querySelector('.sf-options.hidden')
+
+  container.innerHTML = `
+    <button class="sf-trigger ${currentValue ? 'sf-active' : ''}"
+      onclick="window.toggleSidebarFilter('assignedto')">
+      <span class="sf-label">Assigned to</span>
+      ${currentValue ? `<span class="sf-selected">${currentLabel}</span>` : ''}
+    </button>
+    <div class="sf-options ${wasOpen ? '' : 'hidden'}" id="sf-options-assignedto">
+      <button class="sf-option ${!currentValue ? 'sf-option-active' : ''}"
+        onclick="window.setSidebarFilter('assignedTo', null, null)">
+        All
+      </button>
+      <button class="sf-option ${'__unassigned__' === currentValue ? 'sf-option-active' : ''}"
+        onclick="window.setSidebarFilter('assignedTo', '__unassigned__', 'Unassigned')">
+        Unassigned
+      </button>
+      ${assignedAgents.map(a => `
+        <button class="sf-option ${a.value === currentValue ? 'sf-option-active' : ''}"
+          onclick="window.setSidebarFilter('assignedTo', '${a.value.replace(/'/g, "\\'")}', '${a.label.replace(/'/g, "\\'")}')">
+          ${a.label}
         </button>
       `).join('')}
     </div>
@@ -1075,6 +1143,7 @@ async function fetchLiveTickets() {
     renderTicketList(liveTickets);
     renderAccountFilters();
     renderFilterDropdowns();
+    renderAssignedToFilter();
     // Open first unassigned ticket, fallback to first ticket overall
     const first = liveTickets.find((t: any) => !t.assignedTo) ?? liveTickets[0];
     if (first) await loadWorkspace(first);
@@ -1110,6 +1179,7 @@ async function silentRefresh() {
       renderTicketList(liveTickets);
       renderAccountFilters();
       renderFilterDropdowns();
+      renderAssignedToFilter();
     }
 
     // Flash only genuinely new tickets
