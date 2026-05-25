@@ -164,7 +164,7 @@ document.getElementById('agentDeniedRetry')!.addEventListener('click', () => {
   (document.getElementById('agentLoginBtn') as HTMLButtonElement).disabled = false;
 });
 
-document.getElementById('signOutBtn')!.addEventListener('click', async () => {
+document.getElementById('signOutBtn')?.addEventListener('click', async () => {
   if (IS_DEMO) return;
   await signOut();
   location.reload();
