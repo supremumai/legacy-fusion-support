@@ -1498,6 +1498,13 @@ function populateAssignSelect(
   select: HTMLSelectElement,
   currentAssignee: string
 ): void {
+  // Clear any stuck pending state from false empty-value fires
+  assignChangePending = false
+
+  // Suppress onchange during population to prevent false assign requests
+  const prevOnchange = select.onchange
+  select.onchange = null
+
   select.innerHTML =
     '<option value="">— Unassigned</option>' +
     agentList.map((a: any) =>
@@ -1507,6 +1514,11 @@ function populateAssignSelect(
   const hasAssignee = !!currentAssignee && currentAssignee !== ''
   select.style.borderColor = hasAssignee ? '#f5a623' : '#06b6d4'
   select.style.color = hasAssignee ? '#f5a623' : '#06b6d4'
+
+  // Restore onchange after DOM settles
+  setTimeout(() => {
+    select.onchange = prevOnchange
+  }, 50)
 }
 
 // ---------------------------------------------------------------------------
