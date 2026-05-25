@@ -1835,3 +1835,98 @@ body { background: #0d1b2a; }
 
 /* Pipeline board fills main when active */
 #pipeline-board { flex: 1; overflow: hidden; }
+
+#pipeline-board {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Sidebar plain text filters (sf-*) ── */
+
+.sf-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+
+.sf-trigger:hover {
+  background: rgba(255,255,255,0.04);
+}
+
+.sf-trigger.sf-open {
+  background: rgba(255,255,255,0.04);
+}
+
+.sf-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #8fa4b5;
+  flex: 1;
+  transition: color 0.12s;
+}
+
+.sf-trigger:hover .sf-label,
+.sf-trigger.sf-open .sf-label {
+  color: #e2e8f0;
+}
+
+.sf-trigger.sf-active .sf-label {
+  color: #f5a623;
+}
+
+.sf-selected {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f5a623;
+  background: rgba(245,166,35,0.1);
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sf-options {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 6px;
+}
+
+.sf-options.hidden {
+  display: none;
+}
+
+.sf-option {
+  padding: 6px 24px;
+  background: transparent;
+  border: none;
+  color: #8fa4b5;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.1s, background 0.1s;
+  border-radius: 4px;
+  margin: 0 8px;
+}
+
+.sf-option:hover {
+  color: #e2e8f0;
+  background: rgba(255,255,255,0.04);
+}
+
+.sf-option.sf-option-active {
+  color: #f5a623;
+  font-weight: 600;
+}

@@ -49,12 +49,7 @@
         <button class="cc-new-ticket-btn" onclick="openNewTicketModal()">+ New Ticket</button>
         <button class="cc-pipeline-btn" id="pipeline-toggle-btn">⬡ Pipeline</button>
         <div class="cc-sidebar-util">
-          <span class="live-badge">
-            <span class="live-dot"></span>
-            Live
-          </span>
           <button class="refresh-btn" id="refreshTicketsBtn" title="Refresh tickets">↻</button>
-          <button class="btn-signout" id="signOutBtn" title="Sign out">↩</button>
         </div>
       </div>
 
@@ -108,7 +103,14 @@
             <div id="wsPills" class="ws-pills-row"></div>
           </div>
           <div class="workspace-header-actions">
-            <button class="btn-cyan ws-action-btn" id="btnAssign">Assign</button>
+            <div class="stage-select-group">
+              <span class="stage-select-label">Assign</span>
+              <select id="assignSelect" class="stage-select"
+                style="border-color:#06b6d4;color:#06b6d4"
+                onchange="window.handleAssignChange(this.value)">
+                <option value="">— Unassigned</option>
+              </select>
+            </div>
             <!-- Stage dropdown injected by loadWorkspace() -->
           </div>
         </div>

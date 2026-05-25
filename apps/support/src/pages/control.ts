@@ -416,6 +416,18 @@ async function loadWorkspace(ticket: any) {
     actionsEl.appendChild(wrapper);
   }
 
+  // Populate assign dropdown
+  const assignSelect = document.getElementById('assignSelect') as HTMLSelectElement | null
+  if (assignSelect) {
+    if (agentList.length === 0) {
+      fetchAgentList().then(() => {
+        populateAssignSelect(assignSelect, ticket.assignedTo ?? '')
+      }).catch(() => {})
+    } else {
+      populateAssignSelect(assignSelect, ticket.assignedTo ?? '')
+    }
+  }
+
   // Show workspace content immediately
   document.getElementById('workspaceEmpty')!.classList.add('hidden');
   const content = document.getElementById('workspaceContent')!;
@@ -555,120 +567,167 @@ function closeAllDropdowns(): void {
 };
 
 function renderFilterDropdowns(): void {
-  const PRIORITY_OPTIONS = [
-    { value: 'urgent',   label: 'Urgent' },
-    { value: 'high',     label: 'High' },
-    { value: 'medium',   label: 'Medium' },
-    { value: 'low',      label: 'Low' },
-  ];
-  const CATEGORY_OPTIONS = [
-    { value: 'billing',   label: 'Billing' },
-    { value: 'technical', label: 'Technical' },
-    { value: 'general',   label: 'General' },
-  ];
-  const STATUS_OPTIONS = [
-    { value: 'new',               label: 'New' },
-    { value: 'triaged',           label: 'Triaged' },
-    { value: 'in_progress',       label: 'In Progress' },
-    { value: 'waiting_client',    label: 'Waiting on Client' },
-    { value: 'waiting_internal',  label: 'Waiting on Internal' },
-    { value: 'escalated',         label: 'Escalated' },
-    { value: 'resolved',          label: 'Resolved' },
-    { value: 'closed',            label: 'Closed' },
-  ];
-  const SOURCE_OPTIONS = [
-    { value: 'chat',   label: 'Chat' },
-    { value: 'manual', label: 'Manual' },
-  ];
+  const FILTER_GROUPS = [
+    {
+      key: 'priority',
+      label: 'Priority',
+      options: [
+        { value: 'urgent', label: 'Urgent' },
+        { value: 'high',   label: 'High' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'low',    label: 'Low' },
+      ]
+    },
+    {
+      key: 'category',
+      label: 'Category',
+      options: [
+        { value: 'billing',   label: 'Billing' },
+        { value: 'technical', label: 'Technical' },
+        { value: 'general',   label: 'General' },
+      ]
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      options: [
+        { value: 'new',              label: 'New' },
+        { value: 'triaged',          label: 'Triaged' },
+        { value: 'in_progress',      label: 'In Progress' },
+        { value: 'waiting_client',   label: 'Waiting on Client' },
+        { value: 'waiting_internal', label: 'Waiting on Internal' },
+        { value: 'escalated',        label: 'Escalated' },
+        { value: 'resolved',         label: 'Resolved' },
+        { value: 'closed',           label: 'Closed' },
+      ]
+    },
+    {
+      key: 'source',
+      label: 'Source',
+      options: [
+        { value: 'chat',   label: 'Chat' },
+        { value: 'manual', label: 'Manual' },
+      ]
+    },
+  ]
 
-  const groups = [
-    { key: 'priority', label: 'Priority', options: PRIORITY_OPTIONS },
-    { key: 'category', label: 'Category', options: CATEGORY_OPTIONS },
-    { key: 'status',   label: 'Status',   options: STATUS_OPTIONS   },
-    { key: 'source',   label: 'Source',   options: SOURCE_OPTIONS   },
-  ];
+  FILTER_GROUPS.forEach(({ key, label, options }) => {
+    const container = document.getElementById(`filter-group-${key}`)
+    if (!container) return
 
-  groups.forEach(({ key, label, options }) => {
-    const container = document.getElementById(`filter-group-${key}`);
-    if (!container) return;
+    const currentValue = activeFilter?.type === key
+      ? activeFilter.value as string
+      : null
+    const currentLabel = options.find(o => o.value === currentValue)?.label ?? null
 
-    const currentValue = activeFilter?.type === key ? activeFilter.value as string : null;
-    const currentLabel = options.find(o => o.value === currentValue)?.label ?? 'All';
+    const wasOpen = container.querySelector('.sf-options') !== null &&
+      !container.querySelector('.sf-options.hidden')
 
     container.innerHTML = `
-      <div class="filter-group-title">${label}</div>
-      <div class="filter-dropdown">
-        <button id="dropdown-trigger-${key}"
-          class="filter-dropdown-trigger${currentValue ? ' active' : ''}"
-          onclick="window.toggleFilterDropdown('${key}')">
-          <span class="filter-dropdown-label">${currentLabel}</span>
-          <span class="filter-dropdown-chevron">▾</span>
+      <button class="sf-trigger ${currentValue ? 'sf-active' : ''}"
+        onclick="window.toggleSidebarFilter('${key}')">
+        <span class="sf-label">${label}</span>
+        ${currentValue ? `<span class="sf-selected">${currentLabel}</span>` : ''}
+      </button>
+      <div class="sf-options ${wasOpen ? '' : 'hidden'}" id="sf-options-${key}">
+        <button class="sf-option ${!currentValue ? 'sf-option-active' : ''}"
+          onclick="window.setSidebarFilter('${key}', null, null)">
+          All
         </button>
-        <div id="dropdown-menu-${key}" class="filter-dropdown-menu hidden">
-          <button class="filter-dropdown-item${!currentValue ? ' selected' : ''}"
-            onclick="window.selectFilterOption('${key}', null, 'All')">
-            All ${label}
+        ${options.map(o => `
+          <button class="sf-option ${o.value === currentValue ? 'sf-option-active' : ''}"
+            onclick="window.setSidebarFilter('${key}', '${o.value}', '${o.label}')">
+            ${o.label}
           </button>
-          ${options.map(o => `
-            <button class="filter-dropdown-item${o.value === currentValue ? ' selected' : ''}"
-              onclick="window.selectFilterOption('${key}', '${o.value}', '${o.label}')">
-              ${o.label}
-            </button>
-          `).join('')}
-        </div>
+        `).join('')}
       </div>
-    `;
-  });
+    `
+  })
+}
+
+;(window as any).toggleSidebarFilter = function(key: string): void {
+  ['priority', 'category', 'status', 'source', 'account']
+    .filter(k => k !== key)
+    .forEach(k => {
+      document.getElementById(`sf-options-${k}`)?.classList.add('hidden')
+      document.querySelector(`#filter-group-${k} .sf-trigger`)?.classList.remove('sf-open')
+    })
+
+  const opts = document.getElementById(`sf-options-${key}`)
+  const trigger = document.querySelector(`#filter-group-${key} .sf-trigger`)
+  const isOpen = !opts?.classList.contains('hidden')
+  opts?.classList.toggle('hidden', isOpen)
+  trigger?.classList.toggle('sf-open', !isOpen)
+}
+
+;(window as any).setSidebarFilter = function(
+  type: string,
+  value: string | null,
+  label: string | null
+): void {
+  document.getElementById(`sf-options-${type}`)?.classList.add('hidden')
+  document.querySelector(`#filter-group-${type} .sf-trigger`)?.classList.remove('sf-open')
+
+  if (value === null) {
+    if (activeFilter?.type === type) {
+      activeFilter = null
+      document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'))
+      document.querySelector('.queue-item[data-filter="unassigned"]')?.classList.add('active')
+    }
+  } else {
+    activeFilter = { type, value }
+    document.querySelectorAll('.queue-item').forEach(i => i.classList.remove('active'))
+  }
+
+  renderFilterDropdowns()
+  renderTicketList(liveTickets)
+  updateCounts(liveTickets)
 }
 
 // ---------------------------------------------------------------------------
 // Account filter — dynamic dropdown, built after fetchLiveTickets populates liveTickets
 // ---------------------------------------------------------------------------
 function renderAccountFilters(): void {
-  // Use #accountFilters container in sidebar
-  const section = document.getElementById('accountFilters');
-  if (!section) return;
+  const container = document.getElementById('accountFilters')
+  if (!container) return
 
-  // Only show accounts that have tickets
   const accounts = [...new Set(
     liveTickets
       .map((t: any) => t.accountName)
       .filter((n: string) => n && n !== '—')
-  )] as string[];
+  )] as string[]
 
-  // Clear and rebuild
-  section.innerHTML = '';
-  if (accounts.length === 0) return;
+  if (accounts.length === 0) {
+    container.innerHTML = ''
+    return
+  }
 
-  // Get currently selected account
   const selectedAccount = activeFilter?.type === 'account'
     ? activeFilter.value as string
-    : null;
+    : null
 
-  const displayLabel = selectedAccount ?? 'All Accounts';
+  const wasOpen = container.querySelector('.sf-options') !== null &&
+    !container.querySelector('.sf-options.hidden')
 
-  const wrapper = document.createElement('div');
-  wrapper.innerHTML = `
-    <div class="account-dropdown" id="accountDropdown">
-      <button class="account-dropdown-trigger${selectedAccount ? ' active' : ''}"
-              onclick="window.toggleAccountDropdown()">
-        <span class="account-dropdown-label">${displayLabel}</span>
-        <span class="account-dropdown-chevron">▾</span>
+  container.innerHTML = `
+    <button class="sf-trigger ${selectedAccount ? 'sf-active' : ''}"
+      onclick="window.toggleSidebarFilter('account')">
+      <span class="sf-label">Account</span>
+      ${selectedAccount ? `<span class="sf-selected">${selectedAccount}</span>` : ''}
+    </button>
+    <div class="sf-options ${wasOpen ? '' : 'hidden'}" id="sf-options-account">
+      <button class="sf-option ${!selectedAccount ? 'sf-option-active' : ''}"
+        onclick="window.setSidebarFilter('account', null, null)">
+        All Accounts
       </button>
-      <div class="account-dropdown-menu hidden" id="accountDropdownMenu">
-        <button class="account-dropdown-item${!selectedAccount ? ' selected' : ''}"
-                onclick="window.selectAccount(null)">
-          All Accounts
+      ${accounts.map(acc => `
+        <button class="sf-option ${acc === selectedAccount ? 'sf-option-active' : ''}"
+          onclick="window.setSidebarFilter('account', '${acc.replace(/'/g, "\\'")}', '${acc.replace(/'/g, "\\'")}')">
+          ${acc}
         </button>
-        ${accounts.map(account => `
-          <button class="account-dropdown-item${account === selectedAccount ? ' selected' : ''}"
-                  onclick="window.selectAccount('${account.replace(/'/g, "\\'")}')">
-            ${account}
-          </button>
-        `).join('')}
-      </div>
-    </div>`;
-  section.appendChild(wrapper.firstElementChild!);
+      `).join('')}
+    </div>
+  `
 }
 
 ;(window as any).toggleAccountDropdown = function(): void {
@@ -825,8 +884,8 @@ replyInput.addEventListener('keydown', (e: Event) => {
 // ---------------------------------------------------------------------------
 // agentList populated at init — see fetchAgentList()
 
-function setActionsBusy(busy: boolean) {
-  ['btnAssign'].forEach(id => { const el = document.getElementById(id); if (el) (el as HTMLButtonElement).disabled = busy; });
+function setActionsBusy(_busy: boolean) {
+  // btnAssign removed in B4 — placeholder kept for future use
 }
 
 function showToast(msg: string, color = 'cyan') {
@@ -847,52 +906,7 @@ function removeTicketFromList(ticketId: string) {
   liveTickets = liveTickets.filter((t: any) => t.id !== ticketId);
 }
 
-document.getElementById('btnAssign')!.addEventListener('click', () => {
-  document.getElementById('assignDropdown')?.remove();
-  const btn = document.getElementById('btnAssign')!;
-  const dropdown = document.createElement('div');
-  dropdown.id = 'assignDropdown'; dropdown.className = 'assign-dropdown glass-card';
-
-  // Use live agentList; fall back to stubs if not loaded yet
-  const options = agentList.length > 0
-    ? agentList
-    : [{ id: '', name: 'Legacy', email: '' }, { id: '', name: 'Cesar', email: '' }, { id: '', name: 'Antonio', email: '' }];
-
-  options.forEach(agent => {
-    const opt = document.createElement('button');
-    opt.className = 'assign-option';
-    opt.textContent = agent.name;
-    opt.addEventListener('click', async () => {
-      dropdown.remove();
-      if (!activeTicketId) return;
-      setActionsBusy(true);
-      try {
-        if (!IS_DEMO) {
-          await assignTicket(activeTicketId, agent.id);
-          if (liveTickets.find((t: any) => t.status === 'new' && t.id === activeTicketId)) {
-            await updateTicketStatus(activeTicketId, 'triaged');
-          }
-        }
-        const ticket = liveTickets.find((t: any) => t.id === activeTicketId);
-        if (ticket) {
-          ticket.assignedTo = agent.name.slice(0, 2).toUpperCase();
-          ticket.assignedUserId = agent.id;
-          if (ticket.status === 'new') ticket.status = 'triaged';
-        }
-        renderTicketList(liveTickets);
-        showToast(`Assigned to ${agent.name}`);
-      } catch (err: any) { showWsError(err.message ?? 'Assign failed.'); }
-      finally { setActionsBusy(false); }
-    });
-    dropdown.appendChild(opt);
-  });
-  const rect = btn.getBoundingClientRect();
-  dropdown.style.top  = `${rect.bottom + window.scrollY + 4}px`;
-  dropdown.style.left = `${rect.left  + window.scrollX}px`;
-  document.body.appendChild(dropdown);
-  const closeOnOutside = (e: Event) => { if (!dropdown.contains(e.target as Node) && e.target !== btn) { dropdown.remove(); document.removeEventListener('click', closeOnOutside); } };
-  setTimeout(() => document.addEventListener('click', closeOnOutside), 0);
-});
+// #btnAssign removed in B4 — replaced by #assignSelect dropdown
 
 // ---------------------------------------------------------------------------
 // Workspace stage dropdown
@@ -953,6 +967,38 @@ const STAGE_COLORS: Record<string, string> = {
     showToast('Failed to update stage — reverted');
   }
 };
+
+;(window as any).handleAssignChange = async function(agentId: string): Promise<void> {
+  if (!activeTicketId) return
+
+  const select = document.getElementById('assignSelect') as HTMLSelectElement | null
+
+  try {
+    await fetch(
+      'https://legacy-fusion-support.hector-0b9.workers.dev' +
+      `/ghl/tickets/${activeTicketId}/assign`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignedTo: agentId })
+      }
+    )
+
+    const hasAssignee = !!agentId
+    if (select) {
+      select.style.borderColor = hasAssignee ? '#f5a623' : '#06b6d4'
+      select.style.color = hasAssignee ? '#f5a623' : '#06b6d4'
+    }
+
+    const ticket = liveTickets.find((t: any) => t.id === activeTicketId)
+    if (ticket) ticket.assignedTo = agentId
+
+    showToast(agentId ? 'Agent assigned' : 'Ticket unassigned')
+  } catch (err) {
+    console.error('[handleAssignChange]', err)
+    showToast('Failed to assign agent')
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Live ticket loader
@@ -1113,6 +1159,8 @@ async function togglePipelineView() {
     currentView = 'pipeline';
     // Hide sidebar in pipeline mode
     document.getElementById('ccSidebar')!.style.display = 'none';
+    document.getElementById('workspaceContent')?.classList.add('hidden')
+    document.getElementById('workspaceEmpty')?.classList.add('hidden')
     btn.textContent = '← Back';
     // Fetch fresh stages from Supabase, merge into liveTickets, then render
     await loadStageMap();
@@ -1122,6 +1170,13 @@ async function togglePipelineView() {
     currentView = '3panel';
     // Show sidebar
     document.getElementById('ccSidebar')!.style.display = '';
+    // Restore workspace visibility
+    if (activeTicketId) {
+      document.getElementById('workspaceContent')?.classList.remove('hidden')
+      document.getElementById('workspaceEmpty')?.classList.add('hidden')
+    } else {
+      document.getElementById('workspaceEmpty')?.classList.remove('hidden')
+    }
     // Remove pipeline board
     document.getElementById('pipeline-board')?.remove();
     btn.textContent = '⬡ Pipeline';
@@ -1376,6 +1431,21 @@ async function fetchAgentList() {
     console.warn('[control] failed to load agent list:', e);
     agentList = [];
   }
+}
+
+function populateAssignSelect(
+  select: HTMLSelectElement,
+  currentAssignee: string
+): void {
+  select.innerHTML =
+    '<option value="">— Unassigned</option>' +
+    agentList.map((a: any) =>
+      `<option value="${a.id}" ${a.id === currentAssignee || a.name === currentAssignee ? 'selected' : ''}>${a.name}</option>`
+    ).join('')
+
+  const hasAssignee = !!currentAssignee && currentAssignee !== ''
+  select.style.borderColor = hasAssignee ? '#f5a623' : '#06b6d4'
+  select.style.color = hasAssignee ? '#f5a623' : '#06b6d4'
 }
 
 // ---------------------------------------------------------------------------
