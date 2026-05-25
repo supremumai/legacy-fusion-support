@@ -1539,11 +1539,19 @@ export default {
     const assignTicketMatch = path.match(/^\/support\/tickets\/([^/]+)\/assign$/);
     if (method === 'PATCH' && assignTicketMatch) {
       const ticketId = assignTicketMatch[1];
-      let body: { assignedTo?: string };
+      const rawText = await request.text();
+      console.log('[assign] raw body:', rawText);
+
+      let body: { assignedTo?: string } = {};
       try {
-        body = await request.json();
+        body = rawText ? JSON.parse(rawText) : {};
       } catch {
-        return json({ error: 'invalid JSON' }, 400, origin);
+        console.error('[assign] JSON parse failed:', rawText);
+        return json({ error: 'invalid JSON', raw: rawText }, 400, origin);
+      }
+
+      if (!('assignedTo' in body)) {
+        return json({ error: 'assignedTo field missing' }, 400, origin);
       }
 
       const patchRes = await fetch(
