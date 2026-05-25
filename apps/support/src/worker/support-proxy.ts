@@ -1362,19 +1362,21 @@ export default {
     }
 
     // CORS enforcement for all browser-facing routes
-    const requestOrigin = req.headers.get('Origin') ?? '';
-    const allowedOrigin = (env.SUPPORT_CORS_ORIGIN ?? '').trim();
+    const requestOrigin = req.headers.get('Origin')?.trim() ?? '';
+    const allowedOrigins = [
+      (env.SUPPORT_CORS_ORIGIN ?? '').trim(),
+      'https://legacy-fusion-support.hector-0b9.workers.dev',
+      'https://app.legacy-fusion.com',
+    ].filter(Boolean);
 
-    console.log('[cors] requestOrigin:', requestOrigin);
-    console.log('[cors] allowedOrigin:', allowedOrigin);
-    console.log('[cors] match:', requestOrigin === allowedOrigin);
+    const originAllowed = !requestOrigin || allowedOrigins.includes(requestOrigin);
 
     // Handle OPTIONS preflight — always respond, never block
     if (method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
         headers: {
-          'Access-Control-Allow-Origin':  requestOrigin || allowedOrigin || '*',
+          'Access-Control-Allow-Origin':  requestOrigin || '*',
           'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
           'Access-Control-Max-Age':       '86400',
@@ -1382,23 +1384,22 @@ export default {
       });
     }
 
-    // For non-OPTIONS: only enforce origin check if allowedOrigin is set AND requestOrigin is present AND they don't match
-    if (allowedOrigin && requestOrigin && requestOrigin !== allowedOrigin) {
-      console.warn('[cors] blocked:', requestOrigin, 'vs', allowedOrigin);
+    // For non-OPTIONS: block if origin is set and not in allowed list
+    if (!originAllowed) {
       return new Response(
-        JSON.stringify({ error: 'forbidden', requestOrigin, allowedOrigin }),
+        JSON.stringify({ error: 'forbidden', requestOrigin, allowedOrigins }),
         {
           status: 403,
           headers: {
             'Content-Type':                'application/json',
-            'Access-Control-Allow-Origin': requestOrigin,
+            'Access-Control-Allow-Origin': requestOrigin || '*',
           },
         }
       );
     }
 
     // Set origin for json() helper responses
-    const origin = requestOrigin || allowedOrigin || '*';
+    const origin = requestOrigin || allowedOrigins[0] || '*';
 
     if (method === 'POST' && path === '/ai/chat') {
       return handleAIChat(req, env, origin);
