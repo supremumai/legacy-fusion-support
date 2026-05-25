@@ -317,7 +317,6 @@ function flashTicketRow(ticketId: string) {
 // ---------------------------------------------------------------------------
 async function loadWorkspace(ticket: any) {
   activeTicketId = ticket.id;
-  document.getElementById('wsTicketId')!.textContent      = ticket.contactName ?? ticket.contact?.name ?? 'Unknown';
   document.getElementById('wsSubject')!.textContent       = ticket.title;
 
   // Render workspace header pills
@@ -386,6 +385,24 @@ async function loadWorkspace(ticket: any) {
       if (row.summary) sumEl.textContent = row.summary;
       // Remove stale suggested action if summary now comes from Supabase
       document.getElementById('aiSuggestedAction')?.remove();
+      // Visual Evidence button
+      const evidenceWrap = document.getElementById('visualEvidenceWrap')
+      if (evidenceWrap) {
+        const imageUrls: string[] = (row as any).image_urls ?? []
+        if (imageUrls.length > 0) {
+          evidenceWrap.classList.remove('hidden')
+          evidenceWrap.innerHTML = `
+            <button class="visual-evidence-btn"
+              onclick="window.openImageLightbox(${JSON.stringify(imageUrls).replace(/"/g, '&quot;')})">
+              🖼 Visual Evidence
+              <span class="evidence-count">${imageUrls.length}</span>
+            </button>
+          `
+        } else {
+          evidenceWrap.classList.add('hidden')
+          evidenceWrap.innerHTML = ''
+        }
+      }
     }).catch(err => console.warn('[loadWorkspace] Supabase ticket fetch failed:', err));
   }
   // Ensure stageMap populated before rendering dropdown (fixes first-load default-to-'new' bug)
@@ -1478,6 +1495,108 @@ function populateAssignSelect(
   const hasAssignee = !!currentAssignee && currentAssignee !== ''
   select.style.borderColor = hasAssignee ? '#f5a623' : '#06b6d4'
   select.style.color = hasAssignee ? '#f5a623' : '#06b6d4'
+}
+
+// ---------------------------------------------------------------------------
+// Image lightbox
+// ---------------------------------------------------------------------------
+;(window as any).openImageLightbox = function(imageUrls: string[]): void {
+  if (!imageUrls?.length) return
+
+  const overlay = document.createElement('div')
+  overlay.id = 'imageLightbox'
+  overlay.className = 'lightbox-overlay'
+  overlay.dataset.urls = JSON.stringify(imageUrls)
+  overlay.innerHTML = `
+    <div class="lightbox-backdrop" onclick="window.closeLightbox()"></div>
+    <div class="lightbox-container">
+      <button class="lightbox-close" onclick="window.closeLightbox()">✕</button>
+      <div class="lightbox-content">
+        <button class="lightbox-nav lightbox-prev" id="lightbox-prev"
+          onclick="window.lightboxNav(-1)"
+          ${imageUrls.length <= 1 ? 'disabled' : ''}>‹</button>
+        <img id="lightbox-img" class="lightbox-img"
+          src="${imageUrls[0]}" alt="Evidence image 1" />
+        <button class="lightbox-nav lightbox-next" id="lightbox-next"
+          onclick="window.lightboxNav(1)"
+          ${imageUrls.length <= 1 ? 'disabled' : ''}>›</button>
+      </div>
+      <div class="lightbox-footer">
+        <span class="lightbox-counter" id="lightbox-counter">1 / ${imageUrls.length}</span>
+        ${imageUrls.length > 1 ? `
+          <div class="lightbox-dots">
+            ${imageUrls.map((_, i) => `
+              <button class="lightbox-dot ${i === 0 ? 'active' : ''}"
+                onclick="window.lightboxGoTo(${i})"></button>
+            `).join('')}
+          </div>` : ''}
+      </div>
+    </div>
+  `
+  document.body.appendChild(overlay)
+
+  const keyHandler = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowLeft') (window as any).lightboxNav(-1)
+    if (e.key === 'ArrowRight') (window as any).lightboxNav(1)
+    if (e.key === 'Escape') (window as any).closeLightbox()
+  }
+  document.addEventListener('keydown', keyHandler)
+  ;(overlay as any)._keyHandler = keyHandler
+}
+
+;(window as any).lightboxNav = function(dir: number): void {
+  const overlay = document.getElementById('imageLightbox') as any
+  if (!overlay) return
+  const urls: string[] = JSON.parse(overlay.dataset.urls ?? '[]')
+  const counter = document.getElementById('lightbox-counter')
+  if (!counter) return
+  const parts = counter.textContent?.split(' / ')
+  if (!parts) return
+  const current = parseInt(parts[0]) - 1
+  const next = Math.max(0, Math.min(urls.length - 1, current + dir))
+
+  const img = document.getElementById('lightbox-img') as HTMLImageElement | null
+  const prevBtn = document.getElementById('lightbox-prev') as HTMLButtonElement | null
+  const nextBtn = document.getElementById('lightbox-next') as HTMLButtonElement | null
+
+  if (img && urls[next]) img.src = urls[next]
+  counter.textContent = `${next + 1} / ${urls.length}`
+  if (prevBtn) prevBtn.disabled = next === 0
+  if (nextBtn) nextBtn.disabled = next === urls.length - 1
+
+  document.querySelectorAll('.lightbox-dot').forEach((d, i) => {
+    d.classList.toggle('active', i === next)
+  })
+}
+
+;(window as any).lightboxGoTo = function(index: number): void {
+  const overlay = document.getElementById('imageLightbox') as any
+  if (!overlay) return
+  const urls: string[] = JSON.parse(overlay.dataset.urls ?? '[]')
+  if (!urls[index]) return
+
+  const img = document.getElementById('lightbox-img') as HTMLImageElement | null
+  const counter = document.getElementById('lightbox-counter')
+  const prevBtn = document.getElementById('lightbox-prev') as HTMLButtonElement | null
+  const nextBtn = document.getElementById('lightbox-next') as HTMLButtonElement | null
+
+  if (img) img.src = urls[index]
+  if (counter) counter.textContent = `${index + 1} / ${urls.length}`
+  if (prevBtn) prevBtn.disabled = index === 0
+  if (nextBtn) nextBtn.disabled = index === urls.length - 1
+
+  document.querySelectorAll('.lightbox-dot').forEach((d, i) => {
+    d.classList.toggle('active', i === index)
+  })
+}
+
+;(window as any).closeLightbox = function(): void {
+  const overlay = document.getElementById('imageLightbox') as any
+  if (!overlay) return
+  if (overlay._keyHandler) {
+    document.removeEventListener('keydown', overlay._keyHandler)
+  }
+  overlay.remove()
 }
 
 // ---------------------------------------------------------------------------
