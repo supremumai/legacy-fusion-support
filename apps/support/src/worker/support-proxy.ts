@@ -1562,7 +1562,7 @@ export default {
     const assignTicketMatch = path.match(/^\/support\/tickets\/([^/]+)\/assign$/);
     if (method === 'PATCH' && assignTicketMatch) {
       const ticketId = assignTicketMatch[1];
-      const rawText = await request.text();
+      const rawText = await req.text();
       console.log('[assign] raw body:', rawText);
 
       let body: { assignedTo?: string } = {};
