@@ -1533,6 +1533,43 @@ export default {
       return json(rows[0], 200, origin);
     }
 
+    // PATCH /support/tickets/:id/assign — assign agent in Supabase
+    const assignTicketMatch = path.match(/^\/support\/tickets\/([^/]+)\/assign$/);
+    if (method === 'PATCH' && assignTicketMatch) {
+      const ticketId = assignTicketMatch[1];
+      let body: { assignedTo?: string };
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: 'invalid JSON' }, 400, origin);
+      }
+
+      const patchRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${encodeURIComponent(ticketId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            assigned_to: body.assignedTo ?? null,
+            updated_at:  new Date().toISOString(),
+          }),
+        }
+      );
+
+      if (!patchRes.ok) {
+        const detail = await patchRes.text();
+        return json({ error: 'assign failed', detail }, 502, origin);
+      }
+
+      console.log('[assign] ticket:', ticketId, '→', body.assignedTo ?? 'unassigned');
+      return json({ ok: true }, 200, origin);
+    }
+
     // PATCH /support/tickets/:id/stage — update pipeline stage in Supabase only
     const stageMatch = path.match(/^\/support\/tickets\/([^/]+)\/stage$/);
     if (method === 'PATCH' && stageMatch) {

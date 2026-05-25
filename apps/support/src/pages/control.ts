@@ -993,7 +993,7 @@ const STAGE_COLORS: Record<string, string> = {
   try {
     await fetch(
       'https://legacy-fusion-support.hector-0b9.workers.dev' +
-      `/ghl/tickets/${activeTicketId}/assign`,
+      `/support/tickets/${activeTicketId}/assign`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
