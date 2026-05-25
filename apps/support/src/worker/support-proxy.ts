@@ -1346,6 +1346,7 @@ async function handleCreateManualTicket(
 // ---------------------------------------------------------------------------
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    try {
     const url    = new URL(req.url);
     const method = req.method.toUpperCase();
     const path   = url.pathname;
@@ -1362,20 +1363,42 @@ export default {
 
     // CORS enforcement for all browser-facing routes
     const requestOrigin = req.headers.get('Origin') ?? '';
-    const allowedOrigin = env.SUPPORT_CORS_ORIGIN;
+    const allowedOrigin = (env.SUPPORT_CORS_ORIGIN ?? '').trim();
 
+    console.log('[cors] requestOrigin:', requestOrigin);
+    console.log('[cors] allowedOrigin:', allowedOrigin);
+    console.log('[cors] match:', requestOrigin === allowedOrigin);
+
+    // Handle OPTIONS preflight — always respond, never block
     if (method === 'OPTIONS') {
-      const corsOrigin = (allowedOrigin && allowedOrigin.length > 0)
-        ? allowedOrigin
-        : requestOrigin || '*';
-      return handlePreflight(corsOrigin);
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin':  requestOrigin || allowedOrigin || '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
+          'Access-Control-Max-Age':       '86400',
+        },
+      });
     }
 
-    if (requestOrigin && allowedOrigin && requestOrigin !== allowedOrigin) {
-      return json({ error: 'Forbidden: origin not allowed' }, 403, '');
+    // For non-OPTIONS: only enforce origin check if allowedOrigin is set AND requestOrigin is present AND they don't match
+    if (allowedOrigin && requestOrigin && requestOrigin !== allowedOrigin) {
+      console.warn('[cors] blocked:', requestOrigin, 'vs', allowedOrigin);
+      return new Response(
+        JSON.stringify({ error: 'forbidden', requestOrigin, allowedOrigin }),
+        {
+          status: 403,
+          headers: {
+            'Content-Type':                'application/json',
+            'Access-Control-Allow-Origin': requestOrigin,
+          },
+        }
+      );
     }
 
-    const origin = allowedOrigin || requestOrigin || '*';
+    // Set origin for json() helper responses
+    const origin = requestOrigin || allowedOrigin || '*';
 
     if (method === 'POST' && path === '/ai/chat') {
       return handleAIChat(req, env, origin);
@@ -1665,5 +1688,15 @@ export default {
     }
 
     return json({ error: 'Not found' }, 404, origin);
+    } catch (e) {
+      console.error('[worker] unhandled error:', e);
+      return new Response(JSON.stringify({ error: String(e) }), {
+        status: 500,
+        headers: {
+          'Content-Type':                'application/json',
+          'Access-Control-Allow-Origin': req.headers.get('Origin') ?? '*',
+        },
+      });
+    }
   },
 };
