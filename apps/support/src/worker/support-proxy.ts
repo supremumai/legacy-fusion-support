@@ -1536,6 +1536,7 @@ export default {
       return json({ stages: stageMap }, 200, origin);
     }
 
+<<<<<<< HEAD
     // GET /support/tickets/:id — return full support_tickets row by primary key id
     const supportTicketMatch = path.match(/^\/support\/tickets\/([^/]+)$/);
     if (method === 'GET' && supportTicketMatch) {
@@ -1576,6 +1577,22 @@ export default {
 
       if (!('assignedTo' in body)) {
         return json({ error: 'assignedTo field missing' }, 400, origin);
+=======
+    // PATCH /support/tickets/:id/sla — update sla_deadline in Supabase
+    const slaMatch = path.match(/^\/support\/tickets\/([^/]+)\/sla$/);
+    if (method === 'PATCH' && slaMatch) {
+      const ticketId = slaMatch[1];
+      let body: { slaDeadline?: string };
+      try {
+        const raw = await req.text();
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        return json({ error: 'invalid JSON' }, 400, origin);
+      }
+
+      if (!body.slaDeadline) {
+        return json({ error: 'slaDeadline required' }, 400, origin);
+>>>>>>> 8747504 (feat(control): SLA deadline editable by agent with predefined options dropdown)
       }
 
       const patchRes = await fetch(
@@ -1589,18 +1606,30 @@ export default {
             'Prefer':        'return=minimal',
           },
           body: JSON.stringify({
+<<<<<<< HEAD
             assigned_to: body.assignedTo ?? null,
             updated_at:  new Date().toISOString(),
+=======
+            sla_deadline: body.slaDeadline,
+            updated_at:   new Date().toISOString(),
+>>>>>>> 8747504 (feat(control): SLA deadline editable by agent with predefined options dropdown)
           }),
         }
       );
 
       if (!patchRes.ok) {
         const detail = await patchRes.text();
+<<<<<<< HEAD
         return json({ error: 'assign failed', detail }, 502, origin);
       }
 
       console.log('[assign] ticket:', ticketId, '→', body.assignedTo ?? 'unassigned');
+=======
+        return json({ error: 'sla update failed', detail }, 502, origin);
+      }
+
+      console.log('[sla] updated:', ticketId, '→', body.slaDeadline);
+>>>>>>> 8747504 (feat(control): SLA deadline editable by agent with predefined options dropdown)
       return json({ ok: true }, 200, origin);
     }
 

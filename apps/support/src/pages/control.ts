@@ -862,7 +862,69 @@ document.addEventListener('click', (e: MouseEvent) => {
       closeAllDropdowns();
     }
   }
+  // Close SLA dropdown on outside click
+  const slaDropdown = document.getElementById('slaDropdown');
+  const slaTrigger  = document.getElementById('aiSLA');
+  if (slaDropdown && slaTrigger &&
+      !slaDropdown.contains(e.target as Node) &&
+      !slaTrigger.contains(e.target as Node)) {
+    slaDropdown.classList.add('hidden');
+  }
 });
+
+// ---------------------------------------------------------------------------
+// SLA edit
+// ---------------------------------------------------------------------------
+;(window as any).toggleSLADropdown = function(): void {
+  const dropdown = document.getElementById('slaDropdown');
+  if (!dropdown) return;
+  dropdown.classList.toggle('hidden');
+};
+
+;(window as any).updateSLA = async function(hours: number): Promise<void> {
+  if (!activeTicketId) return;
+
+  // Close dropdown immediately
+  document.getElementById('slaDropdown')?.classList.add('hidden');
+
+  // Calculate new deadline from now
+  const newDeadline = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+
+  // Optimistic UI update
+  const slaEl = document.getElementById('aiSLA');
+  if (slaEl) {
+    slaEl.textContent = slaLabel(new Date(newDeadline));
+    slaEl.classList.remove('sla-overdue');
+  }
+
+  try {
+    const res = await fetch(
+      'https://legacy-fusion-support.hector-0b9.workers.dev' +
+      `/support/tickets/${activeTicketId}/sla`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slaDeadline: newDeadline }),
+      }
+    );
+
+    if (!res.ok) {
+      console.error('[updateSLA] failed:', res.status);
+      showToast('Failed to update SLA');
+      return;
+    }
+
+    // Update liveTickets cache
+    const ticket = liveTickets.find((t: any) => t.id === activeTicketId);
+    if (ticket) ticket.slaDeadline = newDeadline;
+
+    showToast('SLA deadline updated');
+
+  } catch (err) {
+    console.error('[updateSLA] error:', err);
+    showToast('Failed to update SLA');
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Input area

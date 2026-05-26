@@ -131,7 +131,15 @@
             </div>
             <div class="ai-metric">
               <span class="metric-label">SLA Deadline</span>
-              <span class="metric-value" id="aiSLA">—</span>
+              <div class="sla-edit-wrap">
+                <span class="metric-value sla-clickable" id="aiSLA" onclick="window.toggleSLADropdown()">—</span>
+                <div class="sla-dropdown hidden" id="slaDropdown">
+                  <button class="sla-option" onclick="window.updateSLA(24)">+ 24 hours</button>
+                  <button class="sla-option" onclick="window.updateSLA(48)">+ 48 hours</button>
+                  <button class="sla-option" onclick="window.updateSLA(72)">+ 72 hours</button>
+                  <button class="sla-option" onclick="window.updateSLA(168)">+ 1 week</button>
+                </div>
+              </div>
             </div>
           </div>
           <p class="ai-summary-text" id="aiSummaryText">Analyzing conversation…</p>
