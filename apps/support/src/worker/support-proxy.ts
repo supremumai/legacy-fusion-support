@@ -1464,7 +1464,7 @@ export default {
         `&location_id=eq.${encodeURIComponent(mineLocationId)}` +
         `&source=eq.chat` +
         `&order=updated_at.desc` +
-        `&select=id,status,title,updated_at,priority,category`,
+        `&select=id,status,title,updated_at,priority,category,summary`,
         {
           headers: {
             'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
@@ -1482,6 +1482,7 @@ export default {
       const mineRows = await mineRes.json() as Array<{
         id: string; status: string; title: string;
         updated_at: string; priority: string; category: string;
+        summary: string | null;
       }>;
 
       const OPEN_STAGES     = new Set(['new', 'triaged', 'in_progress']);

@@ -211,6 +211,7 @@ export interface MyTicketItem {
   updated_at: string;
   priority:   string;
   category:   string;
+  summary?:   string | null;
 }
 
 export interface MyTicketsGroup {
