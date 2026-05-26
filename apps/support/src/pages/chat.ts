@@ -56,6 +56,7 @@ let activeChannel: any = null;
 let liveTickets: any[] = [];
 let myTicketsCache: MyTicketItem[] = [];
 const renderedMsgIds = new Set<string>();
+let threadDescExpanded = false;
 
 // ---------------------------------------------------------------------------
 // Ticket creation form state
@@ -67,6 +68,32 @@ let uploadedImages: File[] = []; // max 3
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+const TRUNCATE_AT = 120;
+
+;(window as any).toggleThreadDesc = function(fullText: string): void {
+  const textEl   = document.getElementById('threadDescText');
+  const toggleBtn = document.getElementById('threadDescToggle');
+  if (!textEl || !toggleBtn) return;
+
+  threadDescExpanded = !threadDescExpanded;
+
+  if (threadDescExpanded) {
+    textEl.textContent = fullText;
+    toggleBtn.textContent = 'Show less';
+  } else {
+    textEl.textContent = fullText.slice(0, TRUNCATE_AT).trimEnd() + '…';
+    toggleBtn.textContent = 'Show more';
+  }
+};
+
 function statusGroup(status: string) {
   if (['new', 'triaged', 'in_progress'].includes(status))                        return 'open';
   if (['waiting_client', 'waiting_internal', 'escalated'].includes(status))      return 'waiting';
@@ -355,6 +382,7 @@ async function subscribeTicket(ticketId: string) {
 // ---------------------------------------------------------------------------
 async function loadTicket(ticket: any) {
   resolutionButtonsShown = false;
+  threadDescExpanded = false;
   activeTicketId = ticket.id;
   renderedMsgIds.clear();
   document.getElementById('activeTicketId')!.textContent      = ticket.id;
@@ -362,6 +390,25 @@ async function loadTicket(ticket: any) {
   document.getElementById('slaBadge')!.textContent            = slaLabel(ticket.slaDeadline);
   document.getElementById('welcomeState')!.classList.add('hidden');
   document.getElementById('threadState')!.classList.remove('hidden');
+
+  // Description block
+  const summary = (ticket.summary ?? '').trim();
+  const descEl  = document.getElementById('threadDescription');
+  if (descEl) {
+    if (summary) {
+      const needsTruncation = summary.length > TRUNCATE_AT;
+      const truncated = needsTruncation
+        ? summary.slice(0, TRUNCATE_AT).trimEnd() + '…'
+        : summary;
+      descEl.innerHTML = `
+        <span class="thread-desc-text" id="threadDescText">${escapeHtml(truncated)}</span>${needsTruncation ? `
+        <button class="thread-desc-toggle" id="threadDescToggle" onclick="window.toggleThreadDesc(${JSON.stringify(summary)})">Show more</button>` : ''}
+      `;
+      descEl.classList.remove('hidden');
+    } else {
+      descEl.classList.add('hidden');
+    }
+  }
   // Load messages from Supabase in live mode; fall back to demo data
   if (IS_DEMO) {
     renderThread(DEMO_DATA.messages[ticket.id] || []);
