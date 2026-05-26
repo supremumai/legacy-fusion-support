@@ -26,6 +26,7 @@ let currentView: '3panel' | 'pipeline' = '3panel';
 let stageMap: Record<string, string> = {};
 let accountDropdownOpen = false;
 let assignChangePending = false;
+let expandedPipelineCardId: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Demo seed data
@@ -873,6 +874,52 @@ document.addEventListener('click', (e: MouseEvent) => {
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Pipeline card expand
+// ---------------------------------------------------------------------------
+;(window as any).togglePipelineCard = function(ticketId: string, e: Event): void {
+  e.stopPropagation();
+
+  const expanded = document.getElementById(`expanded-${ticketId}`);
+  const chevron  = document.getElementById(`chevron-${ticketId}`);
+  const isOpen   = !expanded?.classList.contains('hidden');
+
+  // Collapse previously expanded card
+  if (expandedPipelineCardId && expandedPipelineCardId !== ticketId) {
+    const prevExpanded = document.getElementById(`expanded-${expandedPipelineCardId}`);
+    const prevChevron  = document.getElementById(`chevron-${expandedPipelineCardId}`);
+    prevExpanded?.classList.add('hidden');
+    if (prevChevron) prevChevron.textContent = '▾';
+  }
+
+  if (isOpen) {
+    expanded?.classList.add('hidden');
+    if (chevron) chevron.textContent = '▾';
+    expandedPipelineCardId = null;
+  } else {
+    expanded?.classList.remove('hidden');
+    if (chevron) chevron.textContent = '▴';
+    expandedPipelineCardId = ticketId;
+  }
+};
+
+;(window as any).openTicketFromPipeline = function(ticketId: string, e: Event): void {
+  e.stopPropagation();
+
+  const ticket = liveTickets.find((t: any) => t.id === ticketId);
+  if (!ticket) return;
+
+  // Close pipeline, show workspace
+  togglePipelineView();
+
+  // Load ticket in workspace
+  loadWorkspace(ticket);
+
+  // Highlight in sidebar
+  document.querySelectorAll('.cc-ticket-row').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.cc-ticket-row[data-ticket-id="${ticketId}"]`)?.classList.add('active');
+};
+
 // SLA edit
 // ---------------------------------------------------------------------------
 ;(window as any).toggleSLADropdown = function(): void {
@@ -1363,6 +1410,7 @@ async function togglePipelineView() {
     // Remove pipeline board
     document.getElementById('pipeline-board')?.remove();
     btn.textContent = '⬡ Pipeline';
+    expandedPipelineCardId = null;
 
     // Re-fetch to ensure manual tickets are included
     try {
@@ -1380,6 +1428,28 @@ async function togglePipelineView() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Pipeline card helpers
+// ---------------------------------------------------------------------------
+function resolveAgentName(assignedTo: string | null | undefined): string {
+  if (!assignedTo) return 'Unassigned';
+  const agent = agentList.find((a: any) => a.id === assignedTo || a.name === assignedTo);
+  return agent?.name ?? assignedTo;
+}
+
+function formatSLADeadline(deadline: string | Date | null | undefined): string {
+  if (!deadline) return '—';
+  const d = new Date(deadline);
+  if (isNaN(d.getTime())) return '—';
+  if (d < new Date()) return 'Overdue';
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function isSLAOverdue(deadline: string | Date | null | undefined): boolean {
+  if (!deadline) return false;
+  return new Date(deadline) < new Date();
+}
+
 function buildCard(ticket: any, stageColor: string): HTMLElement {
   const card = document.createElement('div');
   card.className = 'pipeline-card';
@@ -1395,14 +1465,39 @@ function buildCard(ticket: any, stageColor: string): HTMLElement {
   const contactName = (ticket.contactName ?? ticket.contact?.name ?? 'Unknown');
   const displayContact = contactName.length > 20 ? contactName.slice(0, 20) + '…' : contactName;
   const dateVal = ticket.updatedAt ?? ticket.dateAdded ?? ticket.slaDeadline ?? new Date();
+  const slaRaw = ticket.slaDeadline ?? ticket.sla_deadline ?? null;
+  const slaText = formatSLADeadline(slaRaw);
+  const slaOverdue = isSLAOverdue(slaRaw);
+  const accountName = ticket.accountName ?? '—';
+  const assignedText = resolveAgentName(ticket.assignedTo ?? ticket.assigned_to);
 
   card.innerHTML = `
-    <div class="pipeline-card-title">${displayTitle}</div>
-    <div class="pipeline-card-meta">
-      <span class="badge-pill" style="background:${priorityColor}22;border-color:${priorityColor}44;color:${priorityColor};font-size:10px;padding:1px 6px;">${priority}</span>
-      <span class="pipeline-card-contact">${displayContact}</span>
+    <div class="pipeline-card-header" onclick="window.togglePipelineCard('${ticket.id}', event)">
+      <div class="pipeline-card-top">
+        <span class="pipeline-card-title">${displayTitle}</span>
+        <span class="pipeline-card-chevron" id="chevron-${ticket.id}">▾</span>
+      </div>
+      <div class="pipeline-card-meta">
+        <span class="badge-pill" style="background:${priorityColor}22;border-color:${priorityColor}44;color:${priorityColor};font-size:10px;padding:1px 6px;">${priority}</span>
+        <span class="pipeline-card-contact">${displayContact}</span>
+      </div>
+      <div class="pipeline-card-time">${timeAgo(dateVal)}</div>
     </div>
-    <div class="pipeline-card-time">${timeAgo(dateVal)}</div>
+    <div class="pipeline-card-expanded hidden" id="expanded-${ticket.id}">
+      <div class="pipeline-card-detail">
+        <span class="pcd-label">Account</span>
+        <span class="pcd-value">${accountName}</span>
+      </div>
+      <div class="pipeline-card-detail">
+        <span class="pcd-label">Assigned to</span>
+        <span class="pcd-value">${assignedText}</span>
+      </div>
+      <div class="pipeline-card-detail">
+        <span class="pcd-label">SLA Deadline</span>
+        <span class="pcd-value${slaOverdue ? ' pcd-overdue' : ''}">${slaText}</span>
+      </div>
+      <button class="pipeline-open-btn" onclick="window.openTicketFromPipeline('${ticket.id}', event)">Open Ticket →</button>
+    </div>
   `;
 
   card.addEventListener('dragstart', (e: DragEvent) => {
@@ -1413,27 +1508,6 @@ function buildCard(ticket: any, stageColor: string): HTMLElement {
   });
   card.addEventListener('dragend', () => {
     card.classList.remove('dragging');
-  });
-
-  card.addEventListener('click', () => {
-    // Switch back to 3panel and open this ticket
-    currentView = '3panel';
-    const cardSidebar = document.getElementById('ccSidebar')
-    if (cardSidebar) {
-      cardSidebar.style.display = ''
-      cardSidebar.style.width = ''
-    }
-    const cardMain = document.getElementById('ccMain')
-    if (cardMain) {
-      cardMain.style.width = ''
-      cardMain.style.maxWidth = ''
-      cardMain.style.position = ''
-    }
-    document.getElementById('pipeline-board')?.remove();
-    const btn = document.getElementById('pipeline-toggle-btn') as HTMLButtonElement;
-    if (btn) btn.textContent = '⬡ Pipeline';
-    renderTicketList();
-    loadWorkspace(ticket);
   });
 
   return card;
