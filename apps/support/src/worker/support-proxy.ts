@@ -1536,7 +1536,6 @@ export default {
       return json({ stages: stageMap }, 200, origin);
     }
 
-<<<<<<< HEAD
     // GET /support/tickets/:id — return full support_tickets row by primary key id
     const supportTicketMatch = path.match(/^\/support\/tickets\/([^/]+)$/);
     if (method === 'GET' && supportTicketMatch) {
@@ -1560,6 +1559,48 @@ export default {
       return json(rows[0], 200, origin);
     }
 
+    // PATCH /support/tickets/:id/sla — update sla_deadline in Supabase
+    const slaMatch = path.match(/^\/support\/tickets\/([^/]+)\/sla$/);
+    if (method === 'PATCH' && slaMatch) {
+      const ticketId = slaMatch[1];
+      let slaBody: { slaDeadline?: string };
+      try {
+        const raw = await req.text();
+        slaBody = raw ? JSON.parse(raw) : {};
+      } catch {
+        return json({ error: 'invalid JSON' }, 400, origin);
+      }
+
+      if (!slaBody.slaDeadline) {
+        return json({ error: 'slaDeadline required' }, 400, origin);
+      }
+
+      const slaPatchRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${encodeURIComponent(ticketId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            sla_deadline: slaBody.slaDeadline,
+            updated_at:   new Date().toISOString(),
+          }),
+        }
+      );
+
+      if (!slaPatchRes.ok) {
+        const detail = await slaPatchRes.text();
+        return json({ error: 'sla update failed', detail }, 502, origin);
+      }
+
+      console.log('[sla] updated:', ticketId, '→', slaBody.slaDeadline);
+      return json({ ok: true }, 200, origin);
+    }
+
     // PATCH /support/tickets/:id/assign — assign agent in Supabase
     const assignTicketMatch = path.match(/^\/support\/tickets\/([^/]+)\/assign$/);
     if (method === 'PATCH' && assignTicketMatch) {
@@ -1577,22 +1618,6 @@ export default {
 
       if (!('assignedTo' in body)) {
         return json({ error: 'assignedTo field missing' }, 400, origin);
-=======
-    // PATCH /support/tickets/:id/sla — update sla_deadline in Supabase
-    const slaMatch = path.match(/^\/support\/tickets\/([^/]+)\/sla$/);
-    if (method === 'PATCH' && slaMatch) {
-      const ticketId = slaMatch[1];
-      let body: { slaDeadline?: string };
-      try {
-        const raw = await req.text();
-        body = raw ? JSON.parse(raw) : {};
-      } catch {
-        return json({ error: 'invalid JSON' }, 400, origin);
-      }
-
-      if (!body.slaDeadline) {
-        return json({ error: 'slaDeadline required' }, 400, origin);
->>>>>>> 8747504 (feat(control): SLA deadline editable by agent with predefined options dropdown)
       }
 
       const patchRes = await fetch(
@@ -1606,30 +1631,18 @@ export default {
             'Prefer':        'return=minimal',
           },
           body: JSON.stringify({
-<<<<<<< HEAD
             assigned_to: body.assignedTo ?? null,
             updated_at:  new Date().toISOString(),
-=======
-            sla_deadline: body.slaDeadline,
-            updated_at:   new Date().toISOString(),
->>>>>>> 8747504 (feat(control): SLA deadline editable by agent with predefined options dropdown)
           }),
         }
       );
 
       if (!patchRes.ok) {
         const detail = await patchRes.text();
-<<<<<<< HEAD
         return json({ error: 'assign failed', detail }, 502, origin);
       }
 
       console.log('[assign] ticket:', ticketId, '→', body.assignedTo ?? 'unassigned');
-=======
-        return json({ error: 'sla update failed', detail }, 502, origin);
-      }
-
-      console.log('[sla] updated:', ticketId, '→', body.slaDeadline);
->>>>>>> 8747504 (feat(control): SLA deadline editable by agent with predefined options dropdown)
       return json({ ok: true }, 200, origin);
     }
 
