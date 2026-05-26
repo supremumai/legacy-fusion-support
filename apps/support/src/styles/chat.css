@@ -1257,3 +1257,16 @@
 .thread-desc-toggle:hover {
   color: #f5a623;
 }
+
+/* ── Thread description layout fix ───────────────────────────────────────── */
+.thread-topbar {
+  flex-wrap: wrap;
+}
+
+#threadDescription.thread-description {
+  width: 100%;
+  flex-basis: 100%;
+  padding: 6px 0 2px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin-top: 4px;
+}
