@@ -1826,7 +1826,6 @@ body { background: #0d1b2a; }
 }
 
 /* Pipeline board fills main when active */
-<<<<<<< HEAD
 #pipeline-board {
   position: absolute;
   inset: 0;
