@@ -48,25 +48,15 @@
       <div class="cc-sidebar-actions">
         <button class="cc-new-ticket-btn" onclick="openNewTicketModal()">+ New Ticket</button>
         <button class="cc-pipeline-btn" id="pipeline-toggle-btn">⬡ Pipeline</button>
-        <div class="cc-sidebar-util">
-          <button class="refresh-btn" id="refreshTicketsBtn" title="Refresh tickets">↻</button>
-        </div>
+        <button class="cc-refresh-btn" id="refreshTicketsBtn">Refresh Tickets</button>
       </div>
 
       <!-- Filters section -->
       <div class="cc-sidebar-section">
-        <div class="cc-section-label">Filters</div>
-        <div class="queue-section">
-          <button class="queue-item active" data-filter="unassigned" data-value="unassigned">
-            <span>Unassigned</span>
-            <span class="filter-count badge-pill" id="count-unassigned">0</span>
-          </button>
-        </div>
         <div id="filter-group-priority"></div>
         <div id="filter-group-category"></div>
         <div id="filter-group-status"></div>
         <div id="filter-group-source"></div>
-        <div class="cc-section-label" style="margin-top:4px">Account</div>
         <div id="accountFilters"></div>
         <div id="filter-group-assignedto"></div>
       </div>

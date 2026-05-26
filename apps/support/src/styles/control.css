@@ -2191,3 +2191,37 @@ body { background: #0d1b2a; }
 }
 
 .pipeline-open-btn:hover { opacity: 0.88; }
+
+/* ── Refresh Tickets button ───────────────────────────────────────────────── */
+.cc-refresh-btn {
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: transparent;
+  color: #8fa4b5;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.cc-refresh-btn:hover {
+  background: rgba(255,255,255,0.05);
+  color: #e2e8f0;
+}
+
+/* Tighten sidebar section spacing */
+.cc-sidebar-section {
+  padding: 2px 0;
+  margin-top: 2px;
+}
+
+.filter-group-title {
+  padding: 8px 12px 2px;
+}
+
+.sf-trigger {
+  padding: 6px 14px;
+}
