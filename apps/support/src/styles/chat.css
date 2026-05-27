@@ -417,6 +417,14 @@
   box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.12);
 }
 
+/* @LegacyZero mention hint label */
+.at-mention-hint {
+  font-size: 11px;
+  color: #06b6d4;
+  padding: 4px 16px;
+  opacity: 0.8;
+}
+
 .send-btn {
   flex-shrink: 0;
   gap: 6px;
