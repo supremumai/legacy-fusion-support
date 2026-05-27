@@ -109,19 +109,6 @@ function statusBadgeClass(status: string) {
   return g === 'open' ? 'badge-cyan' : g === 'waiting' ? 'badge-gold' : 'badge-green';
 }
 
-function slaLabel(deadline: string | Date | null | undefined): string {
-  if (!deadline) return 'SLA: N/A';
-  const d = new Date(deadline as any);
-  if (isNaN(d.getTime())) return 'SLA: N/A';
-  const diffMs = d.getTime() - Date.now();
-  if (diffMs < 0) return 'SLA: Overdue';
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 60) return `SLA: ${diffMins}m`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `SLA: ${diffHours}h`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `SLA: ${diffDays}d`;
-}
 
 function formatTime(date: Date) {
   return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -394,7 +381,7 @@ async function loadTicket(ticket: any) {
   renderedMsgIds.clear();
   document.getElementById('activeTicketId')!.textContent      = ticket.id;
   document.getElementById('activeTicketSubject')!.textContent = ticket.title;
-  document.getElementById('slaBadge')!.textContent            = slaLabel(ticket.slaDeadline ?? (ticket as any).sla_deadline);
+
   document.getElementById('welcomeState')!.classList.add('hidden');
   document.getElementById('threadState')!.classList.remove('hidden');
 
