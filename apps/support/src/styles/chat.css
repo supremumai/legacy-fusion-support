@@ -1284,3 +1284,51 @@
   border-top: 1px solid rgba(255,255,255,0.06);
   margin-top: 4px;
 }
+
+/* ── Bubble role accents ─────────────────────────────── */
+
+/* LegacyZero bubble — cyan accent */
+.bubble-ai {
+  border-left: 3px solid #06b6d4;
+  background: rgba(6, 182, 212, 0.06);
+}
+
+/* Agent bubble — orange accent */
+.bubble-agent {
+  border-left: 3px solid #f5a623;
+  background: rgba(245, 166, 35, 0.06);
+}
+
+/* Sender label base */
+.bubble-sender {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+/* LegacyZero label — cyan */
+.bubble-sender-ai {
+  color: #06b6d4;
+}
+
+/* Agent label — orange */
+.bubble-sender-agent {
+  color: #f5a623;
+}
+
+/* LegacyZero icon */
+.bubble-icon-ai {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Agent SVG icon */
+.bubble-icon-agent {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+  flex-shrink: 0;
+}

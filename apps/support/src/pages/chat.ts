@@ -361,7 +361,7 @@ function renderThread(messages: any[]) {
     el.className = `message-bubble bubble-${msg.role}`;
     el.innerHTML = `
       <div class="bubble-content">${msg.content}</div>
-      <div class="bubble-meta">${msg.role === 'ai' ? 'LegacyZero' : msg.role} · ${formatTime(msg.createdAt)}</div>
+      <div class="bubble-meta">${bubbleSenderLabel(msg.role)} · ${formatTime(msg.createdAt)}</div>
     `;
     thread.appendChild(el);
   });
@@ -607,7 +607,7 @@ function appendIntakeBubble(role: string, content: string) {
   }
   const el = document.createElement('div');
   el.className = `message-bubble bubble-${role}`;
-  el.innerHTML = `<div class="bubble-content">${content}</div><div class="bubble-meta">${role === 'ai' ? 'LegacyZero' : role} · ${formatTime(new Date())}</div>`;
+  el.innerHTML = `<div class="bubble-content">${content}</div><div class="bubble-meta">${bubbleSenderLabel(role)} · ${formatTime(new Date())}</div>`;
   thread.appendChild(el);
   thread.scrollTop = thread.scrollHeight;
 }
@@ -863,12 +863,22 @@ async function handleThreadSend() {
   }
 }
 
+function bubbleSenderLabel(role: string): string {
+  if (role === 'ai') {
+    return `<span class="bubble-sender bubble-sender-ai"><span class="bubble-icon-ai">⬡</span>LegacyZero</span>`;
+  }
+  if (role === 'agent') {
+    return `<span class="bubble-sender bubble-sender-agent"><svg class="bubble-icon-agent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>Agent</span>`;
+  }
+  return role;
+}
+
 function appendThreadBubble(role: string, content: string, msgId: string | null = null) {
   if (msgId) { if (renderedMsgIds.has(msgId)) return; renderedMsgIds.add(msgId); }
   const thread = document.getElementById('messageThread')!;
   const el = document.createElement('div');
   el.className = `message-bubble bubble-${role}`;
-  el.innerHTML = `<div class="bubble-content">${content}</div><div class="bubble-meta">${role === 'ai' ? 'LegacyZero' : role} · ${formatTime(new Date())}</div>`;
+  el.innerHTML = `<div class="bubble-content">${content}</div><div class="bubble-meta">${bubbleSenderLabel(role)} · ${formatTime(new Date())}</div>`;
   thread.appendChild(el);
   thread.scrollTop = thread.scrollHeight;
 }

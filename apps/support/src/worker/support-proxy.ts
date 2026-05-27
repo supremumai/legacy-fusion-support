@@ -1029,26 +1029,43 @@ Rules:
 - If you believe the customer's issue has been fully resolved based on their last message (they confirmed it's working, said thank you and the issue is gone, or explicitly said it's fixed), append the exact token [RESOLVED] on a new line at the very end of your response — nothing after it. Only do this when clearly resolved. Never add [RESOLVED] speculatively.
 
 `;
-  const effectiveSystemPrompt = CONVERSATION_STYLE_PREFIX + systemPrompt;
-
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages array must be non-empty' }, 400, origin);
   }
 
   try {
-    // Normalize roles: 'ai' → 'assistant', anything else non-user → 'user'
-    // Filter to only 'user' | 'assistant', then deduplicate consecutive same roles
-    const normalized = messages
-      .map((m: { role: string; content: string }) => ({
-        role:    m.role === 'assistant' || m.role === 'ai' ? 'assistant' : 'user',
-        content: m.content,
-      }))
-      .filter((m, i, arr) => i === 0 || m.role !== arr[i - 1].role);
+    // Build labeled conversation history for context-aware system prompt
+    const labeledHistory = messages.map((m: { role: string; content: string }) => {
+      const r = m.role;
+      if (r === 'client' || r === 'user')      return `[Client]: ${m.content}`;
+      if (r === 'agent')                        return `[Agent]: ${m.content}`;
+      if (r === 'ai' || r === 'assistant')      return `[LegacyZero]: ${m.content}`;
+      return `[${r}]: ${m.content}`;
+    }).join('\n');
 
-    // Anthropic requires at least one message and must start with 'user'
-    const finalMessages = normalized.length > 0 && normalized[0].role === 'user'
-      ? normalized
-      : [{ role: 'user', content: 'Hello' }, ...normalized];
+    const contextPrefix =
+      `CONVERSATION HISTORY:\n${labeledHistory}\n\n` +
+      `The above is the full conversation so far. ` +
+      `[Client] messages are from the customer. ` +
+      `[Agent] messages are from a human support agent (NOT you). ` +
+      `[LegacyZero] messages are your own previous responses. ` +
+      `The client's latest message is directed at you. ` +
+      `Respond only to the client — do not address the agent.\n\n`;
+
+    const effectiveSystemPrompt = CONVERSATION_STYLE_PREFIX + contextPrefix + systemPrompt;
+
+    // Only send the last client message as the Anthropic user turn —
+    // the full history is already in the system prompt
+    const lastClientMsg = [...messages]
+      .reverse()
+      .find((m: { role: string; content: string }) =>
+        m.role === 'client' || m.role === 'user'
+      );
+
+    const finalMessages = [{
+      role: 'user' as const,
+      content: lastClientMsg?.content ?? '',
+    }];
 
     const requestBody = {
       model:      'claude-haiku-4-5-20251001',
