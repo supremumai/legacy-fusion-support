@@ -80,11 +80,13 @@ function escapeHtml(str: string): string {
 
 const TRUNCATE_AT = 120;
 
-;(window as any).toggleThreadDesc = function(fullText: string): void {
-  const textEl   = document.getElementById('threadDescText');
+;(window as any).toggleThreadDesc = function(): void {
+  const descEl    = document.getElementById('threadDescription');
+  const textEl    = document.getElementById('threadDescText');
   const toggleBtn = document.getElementById('threadDescToggle');
-  if (!textEl || !toggleBtn) return;
+  if (!descEl || !textEl || !toggleBtn) return;
 
+  const fullText = (descEl as HTMLElement).dataset['fullText'] ?? '';
   threadDescExpanded = !threadDescExpanded;
 
   if (threadDescExpanded) {
@@ -107,12 +109,18 @@ function statusBadgeClass(status: string) {
   return g === 'open' ? 'badge-cyan' : g === 'waiting' ? 'badge-gold' : 'badge-green';
 }
 
-function slaLabel(deadline: Date) {
-  const ms = new Date(deadline).getTime() - Date.now();
-  if (ms < 0) return 'SLA: Overdue';
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return h > 0 ? `SLA: ${h}h ${m}m` : `SLA: ${m}m`;
+function slaLabel(deadline: string | Date | null | undefined): string {
+  if (!deadline) return 'SLA: N/A';
+  const d = new Date(deadline as any);
+  if (isNaN(d.getTime())) return 'SLA: N/A';
+  const diffMs = d.getTime() - Date.now();
+  if (diffMs < 0) return 'SLA: Overdue';
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 60) return `SLA: ${diffMins}m`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `SLA: ${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `SLA: ${diffDays}d`;
 }
 
 function formatTime(date: Date) {
@@ -183,12 +191,6 @@ document.getElementById('loginSendBtn')!.addEventListener('click', async () => {
 
 document.getElementById('loginEmail')!.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'Enter') document.getElementById('loginSendBtn')!.click();
-});
-
-document.getElementById('signOutBtn')!.addEventListener('click', async () => {
-  if (IS_DEMO) return;
-  await signOut();
-  location.reload();
 });
 
 // ---------------------------------------------------------------------------
@@ -392,7 +394,7 @@ async function loadTicket(ticket: any) {
   renderedMsgIds.clear();
   document.getElementById('activeTicketId')!.textContent      = ticket.id;
   document.getElementById('activeTicketSubject')!.textContent = ticket.title;
-  document.getElementById('slaBadge')!.textContent            = slaLabel(ticket.slaDeadline);
+  document.getElementById('slaBadge')!.textContent            = slaLabel(ticket.slaDeadline ?? (ticket as any).sla_deadline);
   document.getElementById('welcomeState')!.classList.add('hidden');
   document.getElementById('threadState')!.classList.remove('hidden');
 
@@ -405,9 +407,11 @@ async function loadTicket(ticket: any) {
       const truncated = needsTruncation
         ? summary.slice(0, TRUNCATE_AT).trimEnd() + '…'
         : summary;
+      // Store full text in dataset to avoid inline-attribute escaping issues
+      (descEl as HTMLElement).dataset['fullText'] = summary;
       descEl.innerHTML = `
         <span class="thread-desc-text" id="threadDescText">${escapeHtml(truncated)}</span>${needsTruncation ? `
-        <button class="thread-desc-toggle" id="threadDescToggle" onclick="window.toggleThreadDesc(${JSON.stringify(summary)})">Show more</button>` : ''}
+        <button class="thread-desc-toggle" id="threadDescToggle" onclick="window.toggleThreadDesc()">Show more</button>` : ''}
       `;
       descEl.classList.remove('hidden');
     } else {
@@ -494,12 +498,6 @@ function showActiveInputState(): void {
   // Only restore if it was replaced with resolved state
   if (!inputArea.querySelector('#threadInput')) {
     inputArea.innerHTML = `
-      <div class="quick-actions" id="quickActions">
-        <button class="quick-pill" data-prompt="Billing issue">Billing issue</button>
-        <button class="quick-pill" data-prompt="Report a bug">Report a bug</button>
-        <button class="quick-pill" data-prompt="Need help">Need help</button>
-        <button class="quick-pill" data-prompt="Talk to human">Talk to human</button>
-      </div>
       <div class="chat-input-bar">
         <textarea
           id="threadInput"
@@ -532,16 +530,6 @@ function showActiveInputState(): void {
         const hasMention = /@LegacyZero/i.test(threadInput.value);
         threadInput.classList.toggle('has-mention', hasMention);
       }
-    });
-    // Re-attach quick pills
-    document.querySelectorAll('.quick-pill').forEach(pill => {
-      pill.addEventListener('click', () => {
-        const input = document.getElementById('threadInput') as HTMLTextAreaElement;
-        if (input) {
-          input.value = (pill as HTMLElement).dataset['prompt'] ?? '';
-          input.focus();
-        }
-      });
     });
   }
 }
@@ -1007,13 +995,6 @@ function showThreadResolutionButtons(ticketId: string): void {
 // ---------------------------------------------------------------------------
 // Event listeners
 // ---------------------------------------------------------------------------
-document.querySelectorAll('.quick-pill').forEach(pill => {
-  pill.addEventListener('click', () => {
-    const input = document.getElementById('threadInput') as HTMLTextAreaElement;
-    input.value = (pill as HTMLElement).dataset['prompt'] ?? '';
-    input.focus();
-  });
-});
 
 document.getElementById('welcomeSendBtn')!.addEventListener('click', handleWelcomeSend);
 document.getElementById('welcomeInput')!.addEventListener('keydown', (e: Event) => {

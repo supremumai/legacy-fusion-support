@@ -1287,17 +1287,11 @@
 
 /* ── Bubble role accents ─────────────────────────────── */
 
-/* LegacyZero bubble — cyan accent */
-.bubble-ai {
-  border-left: 3px solid #06b6d4;
-  background: rgba(6, 182, 212, 0.06);
-}
+/* LegacyZero bubble */
+.bubble-ai {}
 
-/* Agent bubble — orange accent */
-.bubble-agent {
-  border-left: 3px solid #f5a623;
-  background: rgba(245, 166, 35, 0.06);
-}
+/* Agent bubble */
+.bubble-agent {}
 
 /* Sender label base */
 .bubble-sender {
@@ -1331,4 +1325,9 @@
   height: 12px;
   fill: currentColor;
   flex-shrink: 0;
+}
+
+/* Hide ticket ID in thread topbar */
+#activeTicketId {
+  display: none;
 }
