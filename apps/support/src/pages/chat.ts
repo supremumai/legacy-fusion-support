@@ -57,6 +57,8 @@ let liveTickets: any[] = [];
 let myTicketsCache: MyTicketItem[] = [];
 const renderedMsgIds = new Set<string>();
 let threadDescExpanded = false;
+let activeTicketStatus: string = '';
+let threadHasAgentMessage: boolean = false;
 
 // ---------------------------------------------------------------------------
 // Ticket creation form state
@@ -374,6 +376,9 @@ async function subscribeTicket(ticketId: string) {
   if (IS_DEMO) return;
   activeChannel = subscribeToTicket(ticketId, currentLocationId, (msg: any) => {
     appendThreadBubble(msg.role, msg.content, msg.id);
+    // Update agent presence and placeholder in real-time
+    if (msg.role === 'agent') threadHasAgentMessage = true;
+    updateThreadPlaceholder(msg.role);
   });
 }
 
@@ -409,16 +414,30 @@ async function loadTicket(ticket: any) {
       descEl.classList.add('hidden');
     }
   }
+  // Track ticket status for context-aware AI response logic
+  activeTicketStatus = ticket.status ?? '';
+
   // Load messages from Supabase in live mode; fall back to demo data
   if (IS_DEMO) {
-    renderThread(DEMO_DATA.messages[ticket.id] || []);
+    const demoMsgs = DEMO_DATA.messages[ticket.id] || [];
+    renderThread(demoMsgs);
+    threadHasAgentMessage = demoMsgs.some((m: any) => m.role === 'agent');
+    const lastRole = demoMsgs[demoMsgs.length - 1]?.role ?? '';
+    updateThreadPlaceholder(lastRole);
   } else {
     renderThread([]);
     try {
       const msgs = await getMessages(ticket.id, currentLocationId);
-      if (activeTicketId === ticket.id) renderThread(msgs);
+      if (activeTicketId === ticket.id) {
+        renderThread(msgs);
+        threadHasAgentMessage = msgs.some((m: any) => m.role === 'agent');
+        const lastRole = msgs[msgs.length - 1]?.role ?? '';
+        updateThreadPlaceholder(lastRole);
+      }
     } catch (e) {
       console.warn('[loadTicket] failed to load messages:', e);
+      threadHasAgentMessage = false;
+      updateThreadPlaceholder('');
     }
   }
   if (IS_DEMO) renderSidebar(DEMO_DATA.tickets);
@@ -432,6 +451,15 @@ async function loadTicket(ticket: any) {
   } else {
     showActiveInputState();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Thread input placeholder — reflects last responder
+// ---------------------------------------------------------------------------
+function updateThreadPlaceholder(lastRole: string): void {
+  const input = document.getElementById('threadInput') as HTMLTextAreaElement | null;
+  if (!input) return;
+  input.placeholder = lastRole === 'agent' ? 'Reply to agent…' : 'Type a message…';
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +528,9 @@ function showActiveInputState(): void {
       if (threadInput) {
         threadInput.style.height = 'auto';
         threadInput.style.height = Math.min(threadInput.scrollHeight, 160) + 'px';
+        // Highlight @LegacyZero mention with CSS class
+        const hasMention = /@LegacyZero/i.test(threadInput.value);
+        threadInput.classList.toggle('has-mention', hasMention);
       }
     });
     // Re-attach quick pills
@@ -726,12 +757,23 @@ async function createTicketFromIntake() {
 async function handleThreadSend() {
   if (isSending || !activeTicketId) return;
   const input = document.getElementById('threadInput') as HTMLTextAreaElement;
-  const text = input.value.trim();
-  if (!text) return;
+  const rawText = input.value.trim();
+  if (!rawText) return;
   input.value = ''; input.style.height = '';
+  input.classList.remove('has-mention');
   setSending(true);
-  const clientMsg = { id: `msg-${Date.now()}`, role: 'client', content: text, isInternal: false, createdAt: new Date() };
-  appendThreadBubble('client', text, clientMsg.id);
+
+  // Detect and strip @LegacyZero mention
+  const mentionsLegacyZero = /@LegacyZero/i.test(rawText);
+  const textForAI  = rawText.replace(/@LegacyZero/gi, '').trim();
+  const textToSave = rawText; // original text (with mention) goes to DB
+
+  // Determine if LegacyZero should respond
+  const isEarlyStatus = ['new', 'triaged'].includes(activeTicketStatus);
+  const shouldAIRespond = mentionsLegacyZero || (isEarlyStatus && !threadHasAgentMessage);
+
+  const clientMsg = { id: `msg-${Date.now()}`, role: 'client', content: textToSave, isInternal: false, createdAt: new Date() };
+  appendThreadBubble('client', textToSave, clientMsg.id);
 
   // Build full conversation history BEFORE calling AI
   let historyForAI: any[] = [];
@@ -740,14 +782,33 @@ async function handleThreadSend() {
     DEMO_DATA.messages[activeTicketId].push(clientMsg);
     historyForAI = [...DEMO_DATA.messages[activeTicketId]];
   } else {
-    // Persist client message first, then load full history for context
-    await addMessage(activeTicketId, 'client', text, currentLocationId, false);
-    try {
-      historyForAI = await getMessages(activeTicketId, currentLocationId);
-    } catch (e) {
-      console.warn('[thread] getMessages failed, falling back to single message:', e);
-      historyForAI = [clientMsg];
+    // Persist client message first (original text), then load full history
+    await addMessage(activeTicketId, 'client', textToSave, currentLocationId, false);
+    if (shouldAIRespond) {
+      try {
+        historyForAI = await getMessages(activeTicketId, currentLocationId);
+        // Replace last message content with stripped text for AI context
+        if (historyForAI.length > 0) {
+          const last = historyForAI[historyForAI.length - 1];
+          if (last.role === 'client') {
+            historyForAI = [...historyForAI.slice(0, -1), { ...last, content: textForAI || last.content }];
+          }
+        }
+      } catch (e) {
+        console.warn('[thread] getMessages failed, falling back to single message:', e);
+        historyForAI = [{ ...clientMsg, content: textForAI || textToSave }];
+      }
     }
+  }
+
+  // Update placeholder after client sends (no agent yet)
+  updateThreadPlaceholder('client');
+
+  if (!shouldAIRespond) {
+    // No AI response — just persist and done
+    setSending(false);
+    input.focus();
+    return;
   }
 
   showTyping('messageThread');
@@ -758,8 +819,9 @@ async function handleThreadSend() {
       const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
       appendThreadBubble('ai', aiText, aiMsg.id);
       DEMO_DATA.messages[activeTicketId!].push(aiMsg);
+      updateThreadPlaceholder('ai');
     } else {
-      // Call Worker directly to get resolved flag alongside response
+      // Call Worker to get AI response + resolved flag
       const workerRes = await fetch(
         'https://legacy-fusion-support.hector-0b9.workers.dev/ai/chat',
         {
@@ -783,6 +845,7 @@ async function handleThreadSend() {
       const aiMsg = { id: `msg-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
       appendThreadBubble('ai', aiText, aiMsg.id);
       await addMessage(activeTicketId!, 'ai', aiText, currentLocationId, false);
+      updateThreadPlaceholder('ai');
 
       // Show resolution buttons if LegacyZero signalled resolved
       if (aiResolved && !resolutionButtonsShown && activeTicketId) {
@@ -957,6 +1020,11 @@ document.getElementById('threadInput')!.addEventListener('keydown', (e: Event) =
   el.addEventListener('input', () => {
     (el as HTMLTextAreaElement).style.height = 'auto';
     (el as HTMLTextAreaElement).style.height = Math.min((el as HTMLTextAreaElement).scrollHeight, 160) + 'px';
+    // Highlight @LegacyZero mention for threadInput
+    if (id === 'threadInput') {
+      const hasMention = /@LegacyZero/i.test((el as HTMLTextAreaElement).value);
+      el.classList.toggle('has-mention', hasMention);
+    }
   });
 });
 
