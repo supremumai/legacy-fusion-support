@@ -645,16 +645,13 @@ function renderFilterDropdowns(): void {
     const currentValue = activeFilter?.type === key
       ? activeFilter.value as string
       : null
-    const currentLabel = options.find(o => o.value === currentValue)?.label ?? null
 
-    const wasOpen = container.querySelector('.sf-options') !== null &&
-      !container.querySelector('.sf-options.hidden')
+    const wasOpen = openDropdown === key
 
     container.innerHTML = `
-      <button class="sf-trigger ${currentValue ? 'sf-active' : ''}"
+      <button class="sf-trigger"
         onclick="window.toggleSidebarFilter('${key}')">
         <span class="sf-label">${label}</span>
-        ${currentValue ? `<span class="sf-selected">${currentLabel}</span>` : ''}
       </button>
       <div class="sf-options ${wasOpen ? '' : 'hidden'}" id="sf-options-${key}">
         <button class="sf-option ${!currentValue ? 'sf-option-active' : ''}"
@@ -674,18 +671,18 @@ function renderFilterDropdowns(): void {
 }
 
 ;(window as any).toggleSidebarFilter = function(key: string): void {
-  ['priority', 'category', 'status', 'source', 'account', 'assignedto']
-    .filter(k => k !== key)
-    .forEach(k => {
-      document.getElementById(`sf-options-${k}`)?.classList.add('hidden')
-      document.querySelector(`#filter-group-${k} .sf-trigger`)?.classList.remove('sf-open')
-    })
-
-  const opts = document.getElementById(`sf-options-${key}`)
-  const trigger = document.querySelector(`#filter-group-${key} .sf-trigger`)
-  const isOpen = !opts?.classList.contains('hidden')
-  opts?.classList.toggle('hidden', isOpen)
-  trigger?.classList.toggle('sf-open', !isOpen)
+  if (openDropdown === key) {
+    // Close this one
+    document.getElementById(`sf-options-${key}`)?.classList.add('hidden')
+    openDropdown = null
+    return
+  }
+  // Close all others first
+  ;['priority', 'category', 'status', 'source', 'account', 'assignedto'].forEach(k => {
+    document.getElementById(`sf-options-${k}`)?.classList.add('hidden')
+  })
+  document.getElementById(`sf-options-${key}`)?.classList.remove('hidden')
+  openDropdown = key
 }
 
 ;(window as any).setSidebarFilter = function(
@@ -693,8 +690,10 @@ function renderFilterDropdowns(): void {
   value: string | null,
   label: string | null
 ): void {
-  document.getElementById(`sf-options-${type}`)?.classList.add('hidden')
-  document.querySelector(`#filter-group-${type} .sf-trigger`)?.classList.remove('sf-open')
+  // Close dropdown immediately
+  const sfKey = type === 'assignedTo' ? 'assignedto' : type
+  document.getElementById(`sf-options-${sfKey}`)?.classList.add('hidden')
+  openDropdown = null
 
   if (value === null) {
     if (activeFilter?.type === type) {
@@ -708,9 +707,9 @@ function renderFilterDropdowns(): void {
   }
 
   renderFilterDropdowns()
+  renderAccountFilters()
   renderTicketList(liveTickets)
   updateCounts(liveTickets)
-  renderAssignedToFilter()
 }
 
 // ---------------------------------------------------------------------------
@@ -735,14 +734,12 @@ function renderAccountFilters(): void {
     ? activeFilter.value as string
     : null
 
-  const wasOpen = container.querySelector('.sf-options') !== null &&
-    !container.querySelector('.sf-options.hidden')
+  const wasOpen = openDropdown === 'account'
 
   container.innerHTML = `
-    <button class="sf-trigger ${selectedAccount ? 'sf-active' : ''}"
+    <button class="sf-trigger"
       onclick="window.toggleSidebarFilter('account')">
       <span class="sf-label">Account</span>
-      ${selectedAccount ? `<span class="sf-selected">${selectedAccount}</span>` : ''}
     </button>
     <div class="sf-options ${wasOpen ? '' : 'hidden'}" id="sf-options-account">
       <button class="sf-option ${!selectedAccount ? 'sf-option-active' : ''}"
@@ -789,11 +786,10 @@ function renderAssignedToFilter(): void {
     ? 'Unassigned'
     : assignedAgents.find(a => a.value === currentValue)?.label ?? null
 
-  const wasOpen = container.querySelector('.sf-options') !== null &&
-    !container.querySelector('.sf-options.hidden')
+  const wasOpen = openDropdown === 'assignedto'
 
   container.innerHTML = `
-    <button class="sf-trigger ${currentValue ? 'sf-active' : ''}"
+    <button class="sf-trigger"
       onclick="window.toggleSidebarFilter('assignedto')">
       <span class="sf-label">Assigned to</span>
       ${currentValue ? `<span class="sf-selected">${currentLabel}</span>` : ''}
@@ -871,7 +867,66 @@ document.addEventListener('click', (e: MouseEvent) => {
       !slaTrigger.contains(e.target as Node)) {
     slaDropdown.classList.add('hidden');
   }
+
+  // Close Priority dropdown on outside click
+  const priorityDropdown = document.getElementById('priorityDropdown');
+  const priorityTrigger  = document.getElementById('aiPriority');
+  if (priorityDropdown && priorityTrigger &&
+      !priorityDropdown.contains(e.target as Node) &&
+      !priorityTrigger.contains(e.target as Node)) {
+    priorityDropdown.classList.add('hidden');
+  }
 });
+
+;(window as any).togglePriorityDropdown = function(): void {
+  const dropdown = document.getElementById('priorityDropdown');
+  if (!dropdown) return;
+  dropdown.classList.toggle('hidden');
+};
+
+;(window as any).updatePriority = async function(priority: string): Promise<void> {
+  if (!activeTicketId) return;
+
+  document.getElementById('priorityDropdown')?.classList.add('hidden');
+
+  // Optimistic UI
+  const priorityEl = document.getElementById('aiPriority');
+  const PRIORITY_COLORS: Record<string, string> = {
+    urgent: '#f87171', high: '#FDA929', medium: '#00e5ff', low: '#8fa4b5',
+  };
+  if (priorityEl) {
+    priorityEl.textContent = priority.charAt(0).toUpperCase() + priority.slice(1);
+    priorityEl.style.color = PRIORITY_COLORS[priority] ?? '';
+  }
+
+  try {
+    const res = await fetch(
+      `https://legacy-fusion-support.hector-0b9.workers.dev/support/tickets/${activeTicketId}/priority`,
+      {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ priority }),
+      }
+    );
+
+    if (!res.ok) {
+      console.error('[updatePriority] failed:', res.status);
+      showToast('Failed to update priority');
+      return;
+    }
+
+    // Update liveTickets cache
+    const ticket = liveTickets.find((t: any) => t.id === activeTicketId);
+    if (ticket) ticket.priority = priority;
+
+    renderTicketList(liveTickets);
+    showToast('Priority updated');
+
+  } catch (err) {
+    console.error('[updatePriority] error:', err);
+    showToast('Failed to update priority');
+  }
+};
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------

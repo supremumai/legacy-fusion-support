@@ -1664,6 +1664,53 @@ export default {
       return json({ ok: true }, 200, origin);
     }
 
+    // PATCH /support/tickets/:id/priority — update priority in Supabase
+    const priorityMatch = path.match(/^\/support\/tickets\/([^/]+)\/priority$/);
+    if (method === 'PATCH' && priorityMatch) {
+      const ticketId = priorityMatch[1];
+      let priorityBody: { priority?: string };
+      try {
+        const raw = await req.text();
+        priorityBody = raw ? JSON.parse(raw) : {};
+      } catch {
+        return json({ error: 'invalid JSON' }, 400, origin);
+      }
+
+      if (!priorityBody.priority) {
+        return json({ error: 'priority required' }, 400, origin);
+      }
+
+      const validPriorities = ['urgent', 'high', 'medium', 'low'];
+      if (!validPriorities.includes(priorityBody.priority)) {
+        return json({ error: 'invalid priority' }, 400, origin);
+      }
+
+      const priorityPatchRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${encodeURIComponent(ticketId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            priority:   priorityBody.priority,
+            updated_at: new Date().toISOString(),
+          }),
+        }
+      );
+
+      if (!priorityPatchRes.ok) {
+        const detail = await priorityPatchRes.text();
+        return json({ error: 'priority update failed', detail }, 502, origin);
+      }
+
+      console.log('[priority] updated:', ticketId, '→', priorityBody.priority);
+      return json({ ok: true }, 200, origin);
+    }
+
     // PATCH /support/tickets/:id/stage — update pipeline stage in Supabase only
     const stageMatch = path.match(/^\/support\/tickets\/([^/]+)\/stage$/);
     if (method === 'PATCH' && stageMatch) {

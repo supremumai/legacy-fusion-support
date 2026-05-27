@@ -117,7 +117,16 @@
             </div>
             <div class="ai-metric">
               <span class="metric-label">Priority</span>
-              <span class="metric-value" id="aiPriority">—</span>
+              <div class="priority-edit-wrap">
+                <span class="metric-value priority-clickable" id="aiPriority"
+                  onclick="window.togglePriorityDropdown()">—</span>
+                <div class="priority-dropdown hidden" id="priorityDropdown">
+                  <button class="priority-option" onclick="window.updatePriority('urgent')">Urgent</button>
+                  <button class="priority-option" onclick="window.updatePriority('high')">High</button>
+                  <button class="priority-option" onclick="window.updatePriority('medium')">Medium</button>
+                  <button class="priority-option" onclick="window.updatePriority('low')">Low</button>
+                </div>
+              </div>
             </div>
             <div class="ai-metric">
               <span class="metric-label">SLA Deadline</span>
