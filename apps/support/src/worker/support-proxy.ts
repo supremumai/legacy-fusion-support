@@ -1,4 +1,5 @@
 import type { Ticket, Contact, TicketStatus, TicketCategory, TicketPriority } from '../types/ticket';
+import { LEGACY_FUSION_KB } from '../knowledge/legacy_fusion_kb';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -266,12 +267,23 @@ async function autoRespondToTicket(params: {
       'Content-Type':      'application/json',
       'x-api-key':         env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta':    'prompt-caching-2024-07-31',
     },
     body: JSON.stringify({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1000,
-      system:     systemPrompt,
-      messages:   [{ role: 'user', content: contentBlocks }],
+      system: [
+        {
+          type:          'text',
+          text:          LEGACY_FUSION_KB,
+          cache_control: { type: 'ephemeral' },
+        },
+        {
+          type: 'text',
+          text: systemPrompt,
+        },
+      ],
+      messages: [{ role: 'user', content: contentBlocks }],
     }),
   });
 
@@ -1070,8 +1082,18 @@ Rules:
     const requestBody = {
       model:      'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system:     effectiveSystemPrompt,
-      messages:   finalMessages,
+      system: [
+        {
+          type:          'text',
+          text:          LEGACY_FUSION_KB,
+          cache_control: { type: 'ephemeral' },
+        },
+        {
+          type: 'text',
+          text: effectiveSystemPrompt,
+        },
+      ],
+      messages: finalMessages,
     };
 
     console.log('[ai/chat] request body:', JSON.stringify(requestBody).slice(0, 300));
@@ -1082,6 +1104,7 @@ Rules:
         'Content-Type':      'application/json',
         'x-api-key':         env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta':    'prompt-caching-2024-07-31',
       },
       body: JSON.stringify(requestBody),
     });
