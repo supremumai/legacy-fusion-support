@@ -1326,3 +1326,33 @@
 #activeTicketId {
   display: none;
 }
+
+/* ===========================================================================
+   Fix long URL overflow in message bubbles — Batch fix(chat)
+   =========================================================================== */
+
+.message-bubble,
+.ai-response-text,
+.ai-response-block,
+.bubble-content {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+/* ---------------------------------------------------------------------------
+   Clickable links inside LegacyZero / agent responses
+   --------------------------------------------------------------------------- */
+
+.chat-link {
+  color: #06b6d4;
+  text-decoration: underline;
+  text-decoration-color: rgba(6, 182, 212, 0.4);
+  word-break: break-all;
+  transition: color 0.15s;
+}
+
+.chat-link:hover {
+  color: #f5a623;
+  text-decoration-color: rgba(245, 166, 35, 0.4);
+}

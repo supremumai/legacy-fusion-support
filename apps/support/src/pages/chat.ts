@@ -75,7 +75,20 @@ function escapeHtml(str: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function linkify(text: string): string {
+  // Match http/https URLs
+  const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/g;
+  return text.replace(urlRegex, (url) => {
+    // Truncate display text if URL is very long
+    const display = url.length > 60
+      ? url.slice(0, 57) + '…'
+      : url;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="chat-link">${display}</a>`;
+  });
 }
 
 const TRUNCATE_AT = 120;
@@ -582,7 +595,10 @@ function appendIntakeBubble(role: string, content: string) {
   }
   const el = document.createElement('div');
   el.className = `message-bubble bubble-${role}`;
-  el.innerHTML = `<div class="bubble-content">${content}</div><div class="bubble-meta">${bubbleSenderLabel(role)} · ${formatTime(new Date())}</div>`;
+  const safeContent = (role === 'ai' || role === 'agent')
+    ? linkify(escapeHtml(content))
+    : escapeHtml(content);
+  el.innerHTML = `<div class="bubble-content">${safeContent}</div><div class="bubble-meta">${bubbleSenderLabel(role)} · ${formatTime(new Date())}</div>`;
   thread.appendChild(el);
   thread.scrollTop = thread.scrollHeight;
 }
@@ -853,7 +869,10 @@ function appendThreadBubble(role: string, content: string, msgId: string | null 
   const thread = document.getElementById('messageThread')!;
   const el = document.createElement('div');
   el.className = `message-bubble bubble-${role}`;
-  el.innerHTML = `<div class="bubble-content">${content}</div><div class="bubble-meta">${bubbleSenderLabel(role)} · ${formatTime(new Date())}</div>`;
+  const safeContent = (role === 'ai' || role === 'agent')
+    ? linkify(escapeHtml(content))
+    : escapeHtml(content);
+  el.innerHTML = `<div class="bubble-content">${safeContent}</div><div class="bubble-meta">${bubbleSenderLabel(role)} · ${formatTime(new Date())}</div>`;
   thread.appendChild(el);
   thread.scrollTop = thread.scrollHeight;
 }
@@ -1192,7 +1211,7 @@ function showTicketConfirmation(
       <div class="ai-response-label">
         <span class="ai-dot">⬡</span> LegacyZero
       </div>
-      <p class="ai-response-text">${aiResponse}</p>
+      <p class="ai-response-text">${linkify(escapeHtml(aiResponse))}</p>
       ${aiResolved ? `
         <div class="ai-resolution-actions">
           <p class="ai-resolution-question">Did this resolve your issue?</p>
