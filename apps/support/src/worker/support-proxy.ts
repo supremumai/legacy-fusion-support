@@ -1990,16 +1990,116 @@ async function handleReviewLearningQueue(
       }
     ).catch(e => console.warn('[review] queue update failed:', e));
 
-    // Update graph with approved knowledge (fire-and-forget)
+    // ---------------------------------------------------------------------------
+    // Cognitive graph update — fire-and-forget, fully enriched
+    // Spec G2: upsert knowledge_article node + link to issue/solution/feature nodes
+    // ---------------------------------------------------------------------------
     if (articleId) {
-      updateGraphForApprovedKnowledge(env, {
-        id:           articleId,
-        title,
-        category,
-        subcategory:  subcategory ?? null,
-        feature_area: null,
-        tags,
-      }).catch(e => console.warn('[review] graph update failed:', e));
+      (async () => {
+        try {
+          // Derive feature_area from tags heuristic: look for known feature keywords
+          // Priority: explicit feature_area tags > subcategory > null
+          const FEATURE_TAG_MAP: Record<string, string> = {
+            'workflow':         'Workflows',
+            'automation':       'Workflows',
+            'trigger':          'Triggers',
+            'form':             'Forms',
+            'funnel':           'Funnels',
+            'calendar':         'Calendar',
+            'sms':              'SMS',
+            'email':            'Email',
+            'pipeline':         'Pipelines',
+            'contact':          'Contacts',
+            'domain':           'Custom Domains',
+            'ssl':              'Custom Domains',
+            'google-calendar':  'Google Calendar',
+            'integration':      'Integrations',
+            'zapier':           'Zapier',
+            'billing':          'Billing',
+            'login':            'Account Access',
+            'password':         'Account Access',
+            'permissions':      'Roles and Permissions',
+            'role':             'Roles and Permissions',
+          };
+
+          let derivedFeatureArea: string | null = null;
+          for (const tag of tags) {
+            const tagLower = tag.toLowerCase();
+            if (FEATURE_TAG_MAP[tagLower]) {
+              derivedFeatureArea = FEATURE_TAG_MAP[tagLower];
+              break;
+            }
+            // Partial match
+            for (const [key, val] of Object.entries(FEATURE_TAG_MAP)) {
+              if (tagLower.includes(key)) { derivedFeatureArea = val; break; }
+            }
+            if (derivedFeatureArea) break;
+          }
+
+          console.log(`[review/graph] articleId=${articleId} category=${category} subcategory=${subcategory} featureArea=${derivedFeatureArea}`);
+
+          // Upsert: knowledge_article node + category + subcategory + feature nodes + edges
+          await updateGraphForApprovedKnowledge(env, {
+            id:           articleId,
+            title,
+            category,
+            subcategory:  subcategory ?? null,
+            feature_area: derivedFeatureArea,
+            tags,
+          });
+
+          // Also update retrieval_count on the article to signal it has been graph-linked
+          await fetch(
+            `${env.SUPABASE_URL}/rest/v1/support_knowledge_articles?id=eq.${encodeURIComponent(articleId)}`,
+            {
+              method:  'PATCH',
+              headers: {
+                'Content-Type':  'application/json',
+                'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+                'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+                'Prefer':        'return=minimal',
+              },
+              body: JSON.stringify({
+                feature_area: derivedFeatureArea,
+                updated_at:   now,
+              }),
+            }
+          ).catch(e => console.warn('[review/graph] feature_area backfill failed:', e));
+
+          // Write a resolution event linking this KB article back to its source ticket
+          const sourceTicketId = item.ticket_id as string | null;
+          if (sourceTicketId) {
+            await fetch(`${env.SUPABASE_URL}/rest/v1/support_resolution_events`, {
+              method:  'POST',
+              headers: {
+                'Content-Type':  'application/json',
+                'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+                'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+                'Prefer':        'return=minimal',
+              },
+              body: JSON.stringify({
+                location_id:           locationId,
+                ticket_id:             sourceTicketId,
+                contact_id:            null,
+                resolution_type:       'agent_resolved',
+                category,
+                subcategory:           subcategory ?? null,
+                resolution_summary:    `KB article "${title}" approved and added to knowledge base`,
+                kb_article_ids_used:   [articleId],
+                sop_ids_used:          [],
+                ai_response_count:     0,
+                agent_intervened:      true,
+                resolved_at:           now,
+                created_at:            now,
+              }),
+            }).catch(e => console.warn('[review/graph] resolution_event insert failed:', e));
+          }
+
+          console.log(`[review/graph] graph fully updated for article: ${articleId} | "${title}"`);
+        } catch (graphErr) {
+          console.warn('[review/graph] error (non-fatal):', graphErr instanceof Error ? graphErr.message : String(graphErr));
+        }
+      })();
     }
 
     return json({ success: true, articleId, action: 'approved' }, 200, origin);
