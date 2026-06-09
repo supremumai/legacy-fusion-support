@@ -2068,7 +2068,349 @@ async function init() {
   await initAuth();
   await Promise.all([fetchLiveTickets(), fetchAgentList()]);
   startAutoRefresh();
+  // Pre-fetch queue badge count (non-blocking)
+  refreshLearningQueueBadge().catch(() => {});
 }
 
 init();
 // Mon May 25 13:56:04 EDT 2026
+
+// ===========================================================================
+// AI LEARNING QUEUE PANEL
+// ===========================================================================
+
+const WORKER_URL_LQ = 'https://legacy-fusion-support.hector-0b9.workers.dev';
+
+// State
+let lqOpen       = false;
+let lqActiveTab  = 'pending';
+let lqItems: any[] = [];
+
+// ---------------------------------------------------------------------------
+// Toggle the panel open/close
+// ---------------------------------------------------------------------------
+;(window as any).toggleLearningQueue = function(): void {
+  lqOpen = !lqOpen;
+  const overlay = document.getElementById('learningQueueOverlay');
+  const btn     = document.getElementById('learning-queue-btn');
+  if (overlay) overlay.classList.toggle('hidden', !lqOpen);
+  if (btn)     btn.classList.toggle('lq-btn-active', lqOpen);
+  if (lqOpen) {
+    refreshLearningQueue();
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Set active tab
+// ---------------------------------------------------------------------------
+;(window as any).setLQTab = function(status: string): void {
+  lqActiveTab = status;
+  document.querySelectorAll('.lq-tab').forEach(t => {
+    t.classList.toggle('active', (t as HTMLElement).dataset['status'] === status);
+  });
+  refreshLearningQueue();
+};
+
+// ---------------------------------------------------------------------------
+// Refresh queue badge count (background — never blocks)
+// ---------------------------------------------------------------------------
+async function refreshLearningQueueBadge(): Promise<void> {
+  if (IS_DEMO || !currentLocationId || currentLocationId === 'location-demo') return;
+  try {
+    const res = await fetch(
+      `${WORKER_URL_LQ}/support/learning-queue` +
+      `?locationId=${encodeURIComponent(currentLocationId)}` +
+      `&status=pending&limit=50`
+    );
+    if (!res.ok) return;
+    const data = await res.json() as { items: any[] };
+    const count = data.items?.length ?? 0;
+    const badge = document.getElementById('lqBadge');
+    if (badge) {
+      badge.textContent = String(count);
+      badge.classList.toggle('hidden', count === 0);
+    }
+  } catch { /* non-fatal */ }
+}
+
+// ---------------------------------------------------------------------------
+// Refresh queue content for active tab
+// ---------------------------------------------------------------------------
+;(window as any).refreshLearningQueue = async function(): Promise<void> {
+  await refreshLearningQueue();
+};
+
+async function refreshLearningQueue(): Promise<void> {
+  const content = document.getElementById('lqContent');
+  const emptyEl = document.getElementById('lqEmpty');
+  if (!content) return;
+
+  // Show loading state
+  content.innerHTML = '<div class="lq-loading">Loading…</div>';
+
+  if (IS_DEMO || !currentLocationId || currentLocationId === 'location-demo') {
+    renderLQItems([]);
+    return;
+  }
+
+  try {
+    const res = await fetch(
+      `${WORKER_URL_LQ}/support/learning-queue` +
+      `?locationId=${encodeURIComponent(currentLocationId)}` +
+      `&status=${encodeURIComponent(lqActiveTab)}` +
+      `&limit=20`
+    );
+    if (!res.ok) {
+      content.innerHTML = '<div class="lq-error">Failed to load queue. Retry?</div>';
+      return;
+    }
+    const data = await res.json() as { items: any[] };
+    lqItems = data.items ?? [];
+    renderLQItems(lqItems);
+    refreshLearningQueueBadge().catch(() => {});
+  } catch (e) {
+    console.error('[lq] fetch failed:', e);
+    content.innerHTML = '<div class="lq-error">Could not reach worker.</div>';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Render queue items as cards
+// ---------------------------------------------------------------------------
+function renderLQItems(items: any[]): void {
+  const content = document.getElementById('lqContent');
+  if (!content) return;
+
+  if (items.length === 0) {
+    content.innerHTML = `
+      <div class="lq-empty" id="lqEmpty">
+        <span class="lq-empty-glyph">⬡</span>
+        <p>No items in this queue.</p>
+        <p class="lq-empty-hint">AI-suggested KB articles appear here after tickets are resolved.</p>
+      </div>`;
+    return;
+  }
+
+  content.innerHTML = items.map(item => buildLQCard(item)).join('');
+}
+
+function confidenceBadgeClass(confidence: number): string {
+  if (confidence >= 0.8) return 'lq-badge-high';
+  if (confidence >= 0.6) return 'lq-badge-med';
+  return 'lq-badge-low';
+}
+
+function confidenceBadgeLabel(confidence: number): string {
+  const pct = Math.round(confidence * 100);
+  if (confidence >= 0.8) return `${pct}% — High`;
+  if (confidence >= 0.6) return `${pct}% — Medium`;
+  return `${pct}% — Low`;
+}
+
+function buildLQCard(item: any): string {
+  const conf         = item.ai_confidence ?? 0;
+  const confClass    = confidenceBadgeClass(conf);
+  const confLabel    = confidenceBadgeLabel(conf);
+  const subcatDisplay = item.subcategory
+    ? (item.subcategory as string).replace(/_/g, ' ')
+    : null;
+  const tagsHtml = (item.suggested_tags ?? []).slice(0, 5).map((t: string) =>
+    `<span class="lq-tag">${t}</span>`
+  ).join('');
+  const isReviewable = lqActiveTab === 'pending' || lqActiveTab === 'low_confidence';
+
+  return `
+    <div class="lq-card glass-card" id="lq-card-${item.id}">
+      <div class="lq-card-header">
+        <span class="lq-card-title">${item.suggested_title ?? 'Untitled'}</span>
+        <span class="lq-confidence-badge ${confClass}">${confLabel}</span>
+      </div>
+
+      <div class="lq-card-meta">
+        <span class="lq-meta-pill">${item.category ?? '—'}</span>
+        ${subcatDisplay ? `<span class="lq-meta-pill lq-meta-sub">${subcatDisplay}</span>` : ''}
+        <span class="lq-meta-source">Ticket: ${item.ticket_id ?? '—'}</span>
+      </div>
+
+      <div class="lq-card-section">
+        <span class="lq-section-label">Problem</span>
+        <p class="lq-section-text" id="lq-problem-${item.id}">${item.suggested_problem ?? '—'}</p>
+      </div>
+
+      <div class="lq-card-section">
+        <span class="lq-section-label">Solution</span>
+        <p class="lq-section-text" id="lq-solution-${item.id}">${item.suggested_solution ?? '—'}</p>
+      </div>
+
+      ${tagsHtml ? `<div class="lq-tags">${tagsHtml}</div>` : ''}
+
+      <!-- Edit mode fields (hidden by default) -->
+      <div class="lq-edit-fields hidden" id="lq-edit-${item.id}">
+        <label class="lq-edit-label">Title</label>
+        <input class="lq-edit-input" id="lq-edit-title-${item.id}"
+          type="text" value="${(item.suggested_title ?? '').replace(/"/g, '&quot;')}" />
+        <label class="lq-edit-label">Problem</label>
+        <textarea class="lq-edit-textarea" id="lq-edit-problem-${item.id}" rows="2">${item.suggested_problem ?? ''}</textarea>
+        <label class="lq-edit-label">Solution</label>
+        <textarea class="lq-edit-textarea" id="lq-edit-solution-${item.id}" rows="4">${item.suggested_solution ?? ''}</textarea>
+        <label class="lq-edit-label">Tags (comma-separated)</label>
+        <input class="lq-edit-input" id="lq-edit-tags-${item.id}"
+          type="text" value="${(item.suggested_tags ?? []).join(', ')}" />
+      </div>
+
+      ${isReviewable ? `
+      <div class="lq-actions">
+        <button class="lq-btn-approve"
+          onclick="window.lqReview('${item.id}', 'approved')">
+          ✓ Approve
+        </button>
+        <button class="lq-btn-edit"
+          onclick="window.lqToggleEdit('${item.id}')">
+          ✎ Edit &amp; Approve
+        </button>
+        <button class="lq-btn-reject"
+          onclick="window.lqReview('${item.id}', 'rejected')">
+          ✕ Reject
+        </button>
+        <button class="lq-btn-dismiss"
+          onclick="window.lqReview('${item.id}', 'dismissed')">
+          Dismiss
+        </button>
+        ${item.ticket_id ? `
+        <button class="lq-btn-ticket"
+          onclick="window.lqOpenTicket('${item.ticket_id}')">
+          Open Ticket →
+        </button>` : ''}
+      </div>
+      ` : `
+      <div class="lq-status-label">
+        ${lqActiveTab === 'approved' ? '✓ Approved' : '✕ Rejected'}
+      </div>
+      `}
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Toggle inline edit mode for a card
+// ---------------------------------------------------------------------------
+;(window as any).lqToggleEdit = function(itemId: string): void {
+  const editBlock = document.getElementById(`lq-edit-${itemId}`);
+  const probEl    = document.getElementById(`lq-problem-${itemId}`);
+  const solEl     = document.getElementById(`lq-solution-${itemId}`);
+  const btn       = document.querySelector(`#lq-card-${itemId} .lq-btn-edit`) as HTMLButtonElement | null;
+
+  if (!editBlock) return;
+  const isOpen = !editBlock.classList.contains('hidden');
+
+  if (isOpen) {
+    // Confirm edit & approve
+    lqSubmitEdited(itemId);
+  } else {
+    // Open edit mode
+    editBlock.classList.remove('hidden');
+    if (probEl) (probEl as HTMLElement).style.display = 'none';
+    if (solEl)  (solEl  as HTMLElement).style.display = 'none';
+    if (btn)    btn.textContent = '✓ Confirm Edit';
+  }
+};
+
+async function lqSubmitEdited(itemId: string): Promise<void> {
+  const title   = (document.getElementById(`lq-edit-title-${itemId}`)   as HTMLInputElement)?.value?.trim();
+  const problem = (document.getElementById(`lq-edit-problem-${itemId}`) as HTMLTextAreaElement)?.value?.trim();
+  const solution= (document.getElementById(`lq-edit-solution-${itemId}`)as HTMLTextAreaElement)?.value?.trim();
+  const tagsRaw = (document.getElementById(`lq-edit-tags-${itemId}`)    as HTMLInputElement)?.value?.trim();
+
+  if (!problem || !solution) { showToast('Problem and solution are required'); return; }
+
+  const tags = tagsRaw ? tagsRaw.split(',').map((t: string) => t.trim()).filter(Boolean) : [];
+
+  await lqReview(itemId, 'edited_approved', { title, problem, solution, tags });
+}
+
+// ---------------------------------------------------------------------------
+// Submit a review action
+// ---------------------------------------------------------------------------
+;(window as any).lqReview = function(
+  itemId: string,
+  action: 'approved' | 'edited_approved' | 'rejected' | 'dismissed',
+  edits?: { title?: string; problem?: string; solution?: string; tags?: string[] }
+): Promise<void> {
+  return lqReview(itemId, action, edits);
+};
+
+async function lqReview(
+  itemId:  string,
+  action:  'approved' | 'edited_approved' | 'rejected' | 'dismissed',
+  edits?: { title?: string; problem?: string; solution?: string; tags?: string[] }
+): Promise<void> {
+  const card = document.getElementById(`lq-card-${itemId}`);
+  if (!card) return;
+
+  // Disable all buttons in this card while submitting
+  card.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).disabled = true);
+
+  try {
+    const res = await fetch(
+      `${WORKER_URL_LQ}/support/learning-queue/${itemId}/review`,
+      {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          reviewedBy: currentUserId || 'agent',
+          locationId: currentLocationId,
+          ...(edits?.title    ? { title:    edits.title    } : {}),
+          ...(edits?.problem  ? { problem:  edits.problem  } : {}),
+          ...(edits?.solution ? { solution: edits.solution } : {}),
+          ...(edits?.tags     ? { tags:     edits.tags     } : {}),
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      console.error('[lq] review failed:', res.status, detail);
+      showToast('Action failed — try again');
+      card.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).disabled = false);
+      return;
+    }
+
+    // Success feedback
+    if (action === 'approved' || action === 'edited_approved') {
+      showToast('Knowledge saved ✓', 'cyan');
+    } else {
+      showToast('Item dismissed');
+    }
+
+    // Animate card out and refresh
+    card.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+    card.style.opacity    = '0';
+    card.style.transform  = 'translateX(16px)';
+    setTimeout(() => {
+      refreshLearningQueue();
+    }, 280);
+
+  } catch (e) {
+    console.error('[lq] review error:', e);
+    showToast('Action failed — try again');
+    card.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).disabled = false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Open a ticket in the workspace from the queue panel
+// ---------------------------------------------------------------------------
+;(window as any).lqOpenTicket = function(ticketId: string): void {
+  const ticket = liveTickets.find((t: any) => t.id === ticketId || t.ghlOpportunityId === ticketId);
+  if (ticket) {
+    // Close queue panel and open workspace
+    lqOpen = false;
+    const overlay = document.getElementById('learningQueueOverlay');
+    if (overlay) overlay.classList.add('hidden');
+    loadWorkspace(ticket);
+    document.querySelectorAll('.cc-ticket-row').forEach(el => el.classList.remove('active'));
+    document.querySelector(`.cc-ticket-row[data-ticket-id="${ticketId}"]`)?.classList.add('active');
+  } else {
+    showToast('Ticket not in current queue — refresh tickets first');
+  }
+};

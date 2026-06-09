@@ -48,6 +48,10 @@
       <div class="cc-sidebar-actions">
         <button class="cc-new-ticket-btn" onclick="openNewTicketModal()">+ New Ticket</button>
         <button class="cc-pipeline-btn" id="pipeline-toggle-btn">⬡ Pipeline</button>
+        <button class="cc-queue-btn" id="learning-queue-btn" onclick="window.toggleLearningQueue()">
+          ⬡ AI Queue
+          <span class="lq-badge hidden" id="lqBadge">0</span>
+        </button>
         <button class="cc-refresh-btn" id="refreshTicketsBtn">Refresh Tickets</button>
       </div>
 
@@ -167,6 +171,44 @@
     </main>
 
   </div><!-- /.control-app -->
+
+  <!-- =====================================================================
+       AI Learning Queue Panel (full-width overlay, hidden by default)
+       ===================================================================== -->
+  <div class="lq-overlay hidden" id="learningQueueOverlay">
+    <div class="lq-panel">
+
+      <!-- Panel header -->
+      <div class="lq-header">
+        <div class="lq-header-left">
+          <span class="lq-glyph">⬡</span>
+          <span class="lq-title">AI Learning Queue</span>
+          <span class="lq-subtitle">Review AI-suggested knowledge before it goes live</span>
+        </div>
+        <div class="lq-header-right">
+          <div class="lq-tabs">
+            <button class="lq-tab active" data-status="pending"      onclick="window.setLQTab('pending')">Pending</button>
+            <button class="lq-tab"        data-status="low_confidence" onclick="window.setLQTab('low_confidence')">Low Confidence</button>
+            <button class="lq-tab"        data-status="approved"     onclick="window.setLQTab('approved')">Approved</button>
+            <button class="lq-tab"        data-status="rejected"     onclick="window.setLQTab('rejected')">Rejected</button>
+          </div>
+          <button class="lq-refresh-btn" onclick="window.refreshLearningQueue()" title="Refresh queue">↻</button>
+          <button class="lq-close-btn"   onclick="window.toggleLearningQueue()">✕</button>
+        </div>
+      </div>
+
+      <!-- Queue content -->
+      <div class="lq-content" id="lqContent">
+        <div class="lq-empty" id="lqEmpty">
+          <span class="lq-empty-glyph">⬡</span>
+          <p>No items in this queue.</p>
+          <p class="lq-empty-hint">AI-suggested KB articles appear here after tickets are resolved.</p>
+        </div>
+        <!-- Cards injected by JS -->
+      </div>
+
+    </div>
+  </div>
 
   <!-- ===================================================================== -->
 

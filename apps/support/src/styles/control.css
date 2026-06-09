@@ -2273,3 +2273,455 @@ body { background: #0d1b2a; }
   background: rgba(255, 255, 255, 0.05);
   color: #f5a623;
 }
+
+/* ===========================================================================
+   AI LEARNING QUEUE PANEL
+   Added: Batch A7 — 2026-06-09
+   =========================================================================== */
+
+/* --- Sidebar button --- */
+.cc-queue-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--cyan-border);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.cc-queue-btn:hover,
+.cc-queue-btn.lq-btn-active {
+  background: var(--cyan-dim);
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+/* Badge on the sidebar button */
+.lq-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--gold);
+  color: #0a0a0a;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* --- Full-screen overlay panel --- */
+.lq-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(5, 14, 24, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+}
+.lq-overlay.hidden { display: none; }
+
+.lq-panel {
+  width: 100%;
+  max-width: 900px;
+  background: var(--surface);
+  border: 1px solid var(--cyan-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+/* --- Panel header --- */
+.lq-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--cyan-border);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.lq-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.lq-glyph {
+  font-size: 1.4rem;
+  color: var(--cyan);
+  filter: drop-shadow(0 0 6px rgba(0,229,255,0.5));
+}
+.lq-title {
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.lq-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.lq-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- Tabs --- */
+.lq-tabs {
+  display: flex;
+  gap: 4px;
+}
+.lq-tab {
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.lq-tab:hover {
+  color: var(--text-secondary);
+  border-color: var(--cyan-border);
+}
+.lq-tab.active {
+  color: var(--cyan);
+  border-color: var(--cyan);
+  background: var(--cyan-dim);
+}
+
+.lq-refresh-btn,
+.lq-close-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--cyan-border);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.lq-refresh-btn:hover,
+.lq-close-btn:hover {
+  background: var(--cyan-dim);
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+/* --- Content area --- */
+.lq-content {
+  padding: 20px 24px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cyan-border) transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lq-loading,
+.lq-error {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.lq-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.lq-empty-glyph {
+  display: block;
+  font-size: 2.5rem;
+  color: var(--cyan-border);
+  margin-bottom: 12px;
+}
+.lq-empty-hint {
+  font-size: 0.78rem;
+  margin-top: 6px;
+  opacity: 0.7;
+}
+
+/* --- Queue card --- */
+.lq-card {
+  padding: 20px;
+  border-radius: var(--radius-inner);
+  border: 1px solid var(--cyan-border);
+  background: rgba(5, 14, 24, 0.5);
+  transition: border-color 0.2s;
+}
+.lq-card:hover {
+  border-color: rgba(0, 229, 255, 0.2);
+}
+
+.lq-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.lq-card-title {
+  font-family: var(--font-ui);
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+/* Confidence badges */
+.lq-confidence-badge {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.lq-badge-high {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #22c55e;
+}
+.lq-badge-med {
+  background: rgba(253, 169, 41, 0.12);
+  border: 1px solid rgba(253, 169, 41, 0.3);
+  color: var(--gold);
+}
+.lq-badge-low {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+/* Card meta pills */
+.lq-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.lq-meta-pill {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--cyan-dim);
+  border: 1px solid var(--cyan-border);
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.lq-meta-sub {
+  background: rgba(167, 139, 250, 0.1);
+  border-color: rgba(167, 139, 250, 0.3);
+  color: #a78bfa;
+  text-transform: none;
+}
+.lq-meta-source {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Card sections */
+.lq-card-section {
+  margin-bottom: 10px;
+}
+.lq-section-label {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.lq-section-text {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Tags row */
+.lq-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+.lq-tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.68rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+}
+
+/* Edit fields */
+.lq-edit-fields {
+  padding: 14px;
+  border-radius: var(--radius-inner);
+  background: rgba(0, 229, 255, 0.04);
+  border: 1px solid var(--cyan-border);
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lq-edit-label {
+  font-family: var(--font-ui);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.lq-edit-input,
+.lq-edit-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-inner);
+  background: rgba(5, 14, 24, 0.7);
+  border: 1px solid var(--cyan-border);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.lq-edit-input:focus,
+.lq-edit-textarea:focus {
+  border-color: var(--cyan);
+  box-shadow: var(--shadow-cyan);
+}
+
+/* Action buttons */
+.lq-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--cyan-border);
+}
+
+.lq-btn-approve {
+  padding: 6px 16px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--gold), #ffbf4d);
+  color: #0a0a0a;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.lq-btn-approve:hover { opacity: 0.9; transform: translateY(-1px); }
+.lq-btn-approve:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.lq-btn-edit {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--cyan);
+  border: 1px solid var(--cyan);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.lq-btn-edit:hover { background: var(--cyan-dim); transform: translateY(-1px); }
+.lq-btn-edit:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.lq-btn-reject {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lq-btn-reject:hover { background: rgba(239, 68, 68, 0.1); }
+.lq-btn-reject:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.lq-btn-dismiss {
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--cyan-border);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.lq-btn-dismiss:hover { color: var(--text-secondary); }
+.lq-btn-dismiss:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.lq-btn-ticket {
+  margin-left: auto;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--cyan-border);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.lq-btn-ticket:hover { color: var(--cyan); border-color: var(--cyan); }
+
+.lq-status-label {
+  padding-top: 10px;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-top: 1px solid var(--cyan-border);
+}
