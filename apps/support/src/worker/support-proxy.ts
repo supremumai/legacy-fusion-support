@@ -1456,6 +1456,76 @@ async function handleGHLWebhook(req: Request, env: Env): Promise<Response> {
     return json({ error: 'Supabase sync failed', detail: msg }, 502, '');
   }
 
+  // Graph activation — fire-and-forget when GHL signals resolved or closed
+  if (newStatus === 'resolved' || newStatus === 'closed') {
+    (async () => {
+      try {
+        // Fetch ticket metadata from Supabase (may exist if created via chat)
+        const tRes = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/support_tickets` +
+          `?ghl_opportunity_id=eq.${encodeURIComponent(opportunityId)}` +
+          `&select=id,category,subcategory,title,summary,ghl_contact_id&limit=1`,
+          {
+            headers: {
+              'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            },
+          }
+        );
+
+        const rows = tRes.ok
+          ? (await tRes.json() as Array<{ id: string; category: string | null; subcategory: string | null; title: string | null; summary: string | null; ghl_contact_id: string | null }>)
+          : [];
+
+        const ticket    = rows[0];
+        const category  = ticket?.category    ?? 'general';
+        const sub       = ticket?.subcategory ?? null;
+
+        await updateGraphForResolvedTicket(env, {
+          ticketId:          opportunityId,
+          locationId,
+          category,
+          subcategory:       sub,
+          featureArea:       null,
+          topicSummary:      ticket?.title ?? ticket?.summary ?? `GHL opportunity ${opportunityId}`,
+          resolutionSummary: `Stage changed to ${newStatus} via GHL webhook`,
+          resolvedBy:        'agent',
+          kbArticleIds:      [],
+        });
+
+        // Resolution event
+        await fetch(`${env.SUPABASE_URL}/rest/v1/support_resolution_events`, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            location_id:           locationId,
+            ticket_id:             ticket?.id ?? opportunityId,
+            contact_id:            ticket?.ghl_contact_id ?? null,
+            resolution_type:       newStatus === 'resolved' ? 'agent_resolved' : 'auto_closed',
+            category,
+            subcategory:           sub,
+            resolution_summary:    `GHL pipeline stage → ${newStatus}`,
+            kb_article_ids_used:   [],
+            sop_ids_used:          [],
+            ai_response_count:     0,
+            agent_intervened:      true,
+            resolved_at:           new Date().toISOString(),
+            created_at:            new Date().toISOString(),
+          }),
+        }).catch(e => console.warn('[webhook/graph] resolution_event failed:', e));
+
+        console.log(`[webhook/graph] graph updated for ${opportunityId} → ${newStatus}`);
+      } catch (e) {
+        console.warn('[webhook/graph] graph update error (non-fatal):', e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }
+
   return json({ received: true, handled: true, opportunityId, newStatus }, 200, '');
 }
 
@@ -1674,14 +1744,17 @@ async function handleLearningSuggest(req: Request, env: Env, origin: string): Pr
     }),
   }).catch(e => console.warn('[learning/suggest] resolution_events insert failed:', e));
 
-  // Update graph (fire-and-forget)
+  // Update cognitive graph — nodes + edges for this resolution (fire-and-forget)
+  // Spec §15: upsert location / ticket-topic / issue-category / feature / resolution nodes
+  // Edges: topic→category (relates_to), feature→category (feature_of),
+  //        resolution→feature (resolves_via), category→resolution (common_with)
   updateGraphForResolvedTicket(env, {
     ticketId,
     locationId,
     category,
     subcategory:       body.subcategory ?? null,
-    featureArea:       body.featureArea ?? null,
-    topicSummary:      body.summary ?? body.title ?? '',
+    featureArea:       body.featureArea  ?? null,
+    topicSummary:      body.summary      ?? body.title ?? `Support issue: ${category}`,
     resolutionSummary: body.resolutionSummary,
     resolvedBy:        'agent',
     kbArticleIds:      [],
@@ -2367,6 +2440,100 @@ export default {
 
       console.log('[stage] updated:', ticketId, '→', stageBody.stage);
       // TODO: GHL pipeline sync (activate when opportunities write scope is granted)
+
+      // ---------------------------------------------------------------------------
+      // Graph activation: fire-and-forget when resolving or closing a ticket.
+      // Fetch the ticket row for metadata (category, subcategory, location_id, etc.)
+      // then upsert the cognitive graph nodes/edges for this resolution event.
+      // Non-fatal — never blocks the response.
+      // ---------------------------------------------------------------------------
+      if (stageBody.stage === 'resolved' || stageBody.stage === 'closed') {
+        (async () => {
+          try {
+            // Fetch ticket metadata — needed for graph node context
+            const ticketFetch = await fetch(
+              `${env.SUPABASE_URL}/rest/v1/support_tickets` +
+              `?or=(id.eq.${encodeURIComponent(ticketId)},ghl_opportunity_id.eq.${encodeURIComponent(ticketId)})` +
+              `&select=id,location_id,category,subcategory,title,summary,ghl_contact_id&limit=1`,
+              {
+                headers: {
+                  'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+                },
+              }
+            );
+
+            if (!ticketFetch.ok) {
+              console.warn('[stage/graph] ticket fetch failed:', ticketFetch.status, '— skipping graph update');
+              return;
+            }
+
+            const rows = await ticketFetch.json() as Array<{
+              id: string;
+              location_id: string;
+              category: string | null;
+              subcategory: string | null;
+              title: string | null;
+              summary: string | null;
+              ghl_contact_id: string | null;
+            }>;
+
+            if (!rows.length) {
+              console.warn('[stage/graph] ticket not found:', ticketId, '— skipping graph update');
+              return;
+            }
+
+            const ticket = rows[0];
+            const ticketCategory    = ticket.category    ?? 'general';
+            const ticketSubcategory = ticket.subcategory ?? null;
+            const ticketLocationId  = ticket.location_id;
+
+            console.log(`[stage/graph] triggering graph update for ${ticketId} → ${stageBody.stage} | cat=${ticketCategory}`);
+
+            await updateGraphForResolvedTicket(env, {
+              ticketId,
+              locationId:        ticketLocationId,
+              category:          ticketCategory,
+              subcategory:       ticketSubcategory,
+              featureArea:       null,
+              topicSummary:      ticket.title ?? ticket.summary ?? `Support ticket ${ticketCategory}`,
+              resolutionSummary: `Ticket marked ${stageBody.stage} by agent`,
+              resolvedBy:        'agent',
+              kbArticleIds:      [],
+            });
+
+            // Also write a resolution event for analytics
+            await fetch(`${env.SUPABASE_URL}/rest/v1/support_resolution_events`, {
+              method:  'POST',
+              headers: {
+                'Content-Type':  'application/json',
+                'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+                'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+                'Prefer':        'return=minimal',
+              },
+              body: JSON.stringify({
+                location_id:           ticketLocationId,
+                ticket_id:             ticketId,
+                contact_id:            ticket.ghl_contact_id ?? null,
+                resolution_type:       stageBody.stage === 'resolved' ? 'agent_resolved' : 'auto_closed',
+                category:              ticketCategory,
+                subcategory:           ticketSubcategory,
+                resolution_summary:    `Ticket marked ${stageBody.stage}`,
+                kb_article_ids_used:   [],
+                sop_ids_used:          [],
+                ai_response_count:     0,
+                agent_intervened:      true,
+                resolved_at:           new Date().toISOString(),
+                created_at:            new Date().toISOString(),
+              }),
+            }).catch(e => console.warn('[stage/graph] resolution_event insert failed:', e));
+
+            console.log(`[stage/graph] graph + resolution event written for ticket: ${ticketId}`);
+          } catch (graphErr) {
+            console.warn('[stage/graph] error (non-fatal):', graphErr instanceof Error ? graphErr.message : String(graphErr));
+          }
+        })();
+      }
 
       return json({ success: true, ticketId, stage: stageBody.stage }, 200, origin);
     }
