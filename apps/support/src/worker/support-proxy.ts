@@ -1,5 +1,27 @@
 import type { Ticket, Contact, TicketStatus, TicketCategory, TicketPriority } from '../types/ticket';
 import { LEGACY_FUSION_KB } from '../knowledge/legacy_fusion_kb';
+import {
+  assembleTicketCreationContext,
+  assembleConversationContext,
+  assembleLearningContext,
+} from './support-context';
+import type {
+  TicketCreationContextInput,
+  ConversationContextInput,
+  LearningContextInput,
+} from './support-context';
+import {
+  buildContextBlock,
+  assembleAutoResponseSystemPrompt,
+  LEGACYZERO_TRIAGE_PROMPT_V1,
+} from './legacyzero-prompts';
+import {
+  runLegacyZeroTriage,
+  runLegacyZeroConversation,
+  runLegacyZeroLearningSuggestion,
+} from './legacyzero-brain';
+import type { TriageInput, ConversationInput, LearningInput } from './legacyzero-brain';
+import { updateGraphForResolvedTicket, updateGraphForApprovedKnowledge } from './support-graph';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -420,40 +442,51 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
 
   console.log('[createTicket] created in Supabase:', internalId);
 
-  // Step 4 — LegacyZero auto-response (non-fatal)
+  // Step 4 — Brain-powered auto-response (non-fatal)
   try {
-    // Fetch KB entries by category
-    const kbRes = await fetch(
-      `${env.SUPABASE_URL}/rest/v1/knowledge_base` +
-      `?category=eq.${encodeURIComponent(body.category ?? '')}` +
-      `&order=created_at.desc&limit=5` +
-      `&select=problem,solution,category,tags`,
-      {
-        headers: {
-          'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
-          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        },
-      }
-    );
-    const kbEntries = kbRes.ok
-      ? await kbRes.json() as Array<{ problem: string; solution: string; category: string; tags: string[] }>
-      : [];
-
-    console.log('[autoRespond] KB entries:', kbEntries.length);
-
-    const aiResult = await autoRespondToTicket({
-      ticketId:    internalId,
-      title:       body.title ?? '',
-      category:    body.category ?? 'general',
-      subcategory: body.subcategory ?? '',
-      description: body.summary ?? '',
+    // Assemble context from brain tables
+    const contextInput: TicketCreationContextInput = {
       locationId:  body.locationId,
-      imageUrls:   body.imageUrls ?? [],
-      kbEntries,
-      env,
+      category:    body.category ?? 'general',
+      subcategory: body.subcategory ?? null,
+      contactId:   ghlContactId,
+    };
+    const contextPkg = await assembleTicketCreationContext(env, contextInput).catch(e => {
+      console.warn('[createTicket] context assembly failed (non-fatal):', e);
+      return {
+        kbArticles: [], ticketMemories: [], sopChunks: [], graphInsights: [],
+        contextScore: 0, contextWarnings: ['context assembly failed'], assembledAt: new Date().toISOString(), phase: 1,
+      };
     });
 
-    console.log('[autoRespond] resolved:', aiResult.resolved);
+    console.log(`[createTicket] context: kb=${contextPkg.kbArticles.length} mem=${contextPkg.ticketMemories.length} sop=${contextPkg.sopChunks.length} score=${contextPkg.contextScore}`);
+
+    // Build triage input — auto_response mode returns customer_response + triage classification
+    const triageInput: TriageInput = {
+      title:       body.title ?? '',
+      description: body.summary ?? '',
+      category:    body.category ?? 'general',
+      subcategory: body.subcategory ?? null,
+      imageUrls:   body.imageUrls ?? [],
+      mode:        'auto_response',
+    };
+
+    // Handle images for auto-response: fetch and attach as base64 blocks
+    // (runLegacyZeroTriage accepts plain text; image attachment handled by callAnthropic)
+    // For image-bearing tickets, append image context note to description
+    const imageNote = (body.imageUrls ?? []).length > 0
+      ? `\n\n[${(body.imageUrls ?? []).length} image(s) attached by customer]`
+      : '';
+    triageInput.description = (body.summary ?? '') + imageNote;
+
+    const aiResult = await runLegacyZeroTriage(env, contextPkg, triageInput);
+
+    console.log(`[createTicket] triage: resolved=${aiResult.resolved} escalated=${aiResult.escalation_recommended} confidence=${aiResult.confidence} quality=${aiResult.source_quality}`);
+
+    const customerResponse  = aiResult.customer_response ?? 'Thank you for contacting support. An agent will review your case shortly.';
+    const aiResolved        = aiResult.resolved ?? false;
+    const escalationRec     = aiResult.escalation_recommended ?? false;
+    const resolutionNote     = aiResult.resolution_note ?? null;
 
     // Persist AI message to support_messages
     await fetch(`${env.SUPABASE_URL}/rest/v1/support_messages`, {
@@ -467,14 +500,17 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
       body: JSON.stringify({
         ticket_id:   internalId,
         role:        'ai',
-        content:     aiResult.response,
+        content:     customerResponse,
         is_internal: false,
         location_id: body.locationId,
       }),
     });
 
-    // Update ticket status
-    const newStatus = aiResult.resolved ? 'resolved' : 'triaged';
+    // Determine new status: escalated > resolved > triaged
+    const newStatus: string = escalationRec ? 'escalated'
+                            : aiResolved    ? 'resolved'
+                            : 'triaged';
+
     await fetch(
       `${env.SUPABASE_URL}/rest/v1/support_tickets?id=eq.${internalId}`,
       {
@@ -486,25 +522,81 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
           'Prefer':        'return=minimal',
         },
         body: JSON.stringify({
-          status:          newStatus,
-          resolved_by_ai:  aiResult.resolved,
-          updated_at:      new Date().toISOString(),
+          status:         newStatus,
+          resolved_by_ai: aiResolved,
+          updated_at:     new Date().toISOString(),
         }),
       }
     );
 
-    // Notify agent via GHL SMS (fire-and-forget — never blocks)
+    // Fire-and-forget: insert support_ai_evaluations row
+    fetch(`${env.SUPABASE_URL}/rest/v1/support_ai_evaluations`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify({
+        location_id:       body.locationId,
+        ticket_id:         internalId,
+        turn_index:        0,
+        model:             'claude-sonnet-4-20250514',
+        response_text:     customerResponse.slice(0, 1000),
+        accuracy_score:    aiResult.confidence,
+        completeness_score: aiResult.confidence,
+        tone_score:        null,
+        escalation_correct: escalationRec === (aiResult.category === 'escalated'),
+        overall_score:     aiResult.confidence,
+        kb_articles_used:  contextPkg.kbArticles.map(a => a.id),
+        flagged_for_review: aiResult.confidence < 0.6,
+        review_reason:     aiResult.confidence < 0.6 ? 'low confidence on first response' : null,
+        created_at:        new Date().toISOString(),
+      }),
+    }).catch(e => console.warn('[createTicket] ai_evaluations insert failed (non-fatal):', e));
+
+    // Fire-and-forget: insert support_resolution_events row (ai_first_response event)
+    fetch(`${env.SUPABASE_URL}/rest/v1/support_resolution_events`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify({
+        location_id:           body.locationId,
+        ticket_id:             internalId,
+        contact_id:            ghlContactId,
+        resolution_type:       'ai_first_response',
+        category:              body.category ?? 'general',
+        subcategory:           body.subcategory ?? null,
+        resolution_summary:    resolutionNote ?? `AI responded with ${aiResolved ? 'resolution' : 'acknowledgement'}`,
+        kb_article_ids_used:   contextPkg.kbArticles.map(a => a.id),
+        sop_ids_used:          contextPkg.sopChunks.map(c => c.sop_id),
+        ai_response_count:     1,
+        agent_intervened:      false,
+        resolution_time_minutes: 0,
+        resolved_at:           new Date().toISOString(),
+        created_at:            new Date().toISOString(),
+      }),
+    }).catch(e => console.warn('[createTicket] resolution_events insert failed (non-fatal):', e));
+
+    // Notify agent via GHL SMS if escalated or new ticket (fire-and-forget)
     const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
     if (agentContactId) {
+      const escalationFlag = escalationRec ? '🚨 ESCALATED — ' : '';
       fetch(`${GHL_V2_BASE}/conversations/messages`, {
         method:  'POST',
         headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
         body:    JSON.stringify({
           type:      'SMS',
           contactId: agentContactId,
-          message:   `New support ticket: ${body.title}\n` +
+          message:   `${escalationFlag}New support ticket: ${body.title}\n` +
                      `Category: ${body.category ?? 'general'}\n` +
                      `Priority: ${body.priority ?? 'medium'}\n` +
+                     `Status: ${newStatus}\n` +
                      `Summary: ${body.summary ?? ''}`,
         }),
       })
@@ -513,15 +605,19 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     }
 
     return json({
-      ticketId:        internalId,
+      ticketId:              internalId,
       ghlContactId,
-      aiResponse:      aiResult.response,
-      aiResolved:      aiResult.resolved,
-      resolutionNote:  aiResult.resolution_note,
+      aiResponse:            customerResponse,
+      aiResolved,
+      resolutionNote,
+      // Extended fields (optional, backward compatible)
+      aiConfidence:          aiResult.confidence,
+      sourceQuality:         aiResult.source_quality,
+      escalationRecommended: escalationRec,
     }, 201, origin);
 
   } catch (aiErr) {
-    console.error('[autoRespond] failed (non-fatal):', aiErr);
+    console.error('[createTicket] brain auto-response failed (non-fatal):', aiErr);
 
     // Fallback: set triaged
     fetch(
@@ -538,7 +634,6 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
       }
     ).catch(() => {});
 
-    // Notify agent via GHL SMS on fallback path too (fire-and-forget)
     const agentContactIdFallback = env.GHL_AGENT_CONTACT_ID ?? '';
     if (agentContactIdFallback) {
       fetch(`${GHL_V2_BASE}/conversations/messages`, {
@@ -558,11 +653,14 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     }
 
     return json({
-      ticketId:       internalId,
+      ticketId:              internalId,
       ghlContactId,
-      aiResponse:     null,
-      aiResolved:     false,
-      resolutionNote: null,
+      aiResponse:            null,
+      aiResolved:            false,
+      resolutionNote:        null,
+      aiConfidence:          null,
+      sourceQuality:         'none',
+      escalationRecommended: false,
     }, 201, origin);
   }
 
@@ -1003,7 +1101,9 @@ async function upsertTicketStatus(
 
 // ---------------------------------------------------------------------------
 // AI proxy: POST /ai/chat
-// Routes Anthropic calls server-side — keeps ANTHROPIC_API_KEY out of the browser.
+// Brain path: if ticketId + locationId + category in body, uses brain context.
+// Legacy path: if only messages + systemPrompt, falls back to original behavior.
+// Both paths return { response, resolved } — backward compatible.
 // ---------------------------------------------------------------------------
 async function handleAIChat(req: Request, env: Env, origin: string): Promise<Response> {
   console.log('[ai/chat] received request');
@@ -1013,21 +1113,94 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
     return json({ error: 'ANTHROPIC_API_KEY not bound' }, 503, origin);
   }
 
-  let body: { messages: Array<{ role: string; content: string }>; systemPrompt?: string };
+  let body: {
+    messages:     Array<{ role: string; content: string }>;
+    systemPrompt?: string;
+    // Brain path fields (optional)
+    ticketId?:    string;
+    locationId?:  string;
+    category?:    string;
+    subcategory?: string;
+    contactId?:   string;
+    ticketStatus?: string;
+  };
   try {
     body = await req.json();
   } catch {
     return json({ error: 'Invalid JSON body' }, 400, origin);
   }
 
-  const { messages, systemPrompt } = body;
-  console.log('[ai/chat] messages count:', messages?.length);
+  const { messages } = body;
+  console.log('[ai/chat] messages count:', messages?.length, '| brain path:', !!(body.ticketId && body.locationId));
 
-  if (!messages || !systemPrompt) {
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return json({ error: 'messages array must be non-empty' }, 400, origin);
+  }
+
+  // ---------------------------------------------------------------------------
+  // BRAIN PATH: ticketId + locationId + category provided → use brain context
+  // ---------------------------------------------------------------------------
+  if (body.ticketId && body.locationId && body.category) {
+    try {
+      const ctxInput: ConversationContextInput = {
+        locationId:  body.locationId,
+        ticketId:    body.ticketId,
+        category:    body.category,
+        subcategory: body.subcategory ?? null,
+        contactId:   body.contactId ?? null,
+        turnIndex:   messages.length,
+      };
+
+      const contextPkg = await assembleConversationContext(env, ctxInput).catch(e => {
+        console.warn('[ai/chat] brain context assembly failed (non-fatal):', e);
+        return {
+          kbArticles: [], ticketMemories: [], sopChunks: [], graphInsights: [],
+          contextScore: 0, contextWarnings: ['context failed'], assembledAt: new Date().toISOString(), phase: 1,
+        };
+      });
+
+      // Find last client message for the user turn
+      const lastClientMsg = [...messages]
+        .reverse()
+        .find(m => m.role === 'client' || m.role === 'user');
+
+      const convInput: ConversationInput = {
+        messages,
+        lastClientMessage: lastClientMsg?.content ?? '',
+        ticketCategory:    body.category,
+        ticketStatus:      body.ticketStatus ?? undefined,
+      };
+
+      const result = await runLegacyZeroConversation(env, contextPkg, convInput);
+
+      console.log(`[ai/chat] brain result: resolved=${result.resolved} confidence=${result.confidence} quality=${result.source_quality}`);
+
+      return json({
+        response:              result.customer_response,
+        resolved:              result.resolved,
+        // Extended fields (optional, backward compatible)
+        confidence:            result.confidence,
+        sourceQuality:         result.source_quality,
+        escalationRecommended: false,
+      }, 200, origin);
+
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[ai/chat] brain path error, falling through to legacy:', msg);
+      // Fall through to legacy path on brain failure
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // LEGACY PATH: original behavior — messages + systemPrompt
+  // Kept exactly as-is for backward compatibility with existing frontend callers.
+  // ---------------------------------------------------------------------------
+  const { systemPrompt } = body;
+
+  if (!systemPrompt) {
     return json({ error: 'messages and systemPrompt are required' }, 400, origin);
   }
 
-  // Enforce clean plain-text conversation style — prepended to whatever the client sends
   const CONVERSATION_STYLE_PREFIX = `You are LegacyZero, the AI support agent for Legacy Fusion.
 Rules:
 - Respond in plain conversational text only
@@ -1041,12 +1214,8 @@ Rules:
 - If you believe the customer's issue has been fully resolved based on their last message (they confirmed it's working, said thank you and the issue is gone, or explicitly said it's fixed), append the exact token [RESOLVED] on a new line at the very end of your response — nothing after it. Only do this when clearly resolved. Never add [RESOLVED] speculatively.
 
 `;
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return json({ error: 'messages array must be non-empty' }, 400, origin);
-  }
 
   try {
-    // Build labeled conversation history for context-aware system prompt
     const labeledHistory = messages.map((m: { role: string; content: string }) => {
       const r = m.role;
       if (r === 'client' || r === 'user')      return `[Client]: ${m.content}`;
@@ -1066,8 +1235,6 @@ Rules:
 
     const effectiveSystemPrompt = CONVERSATION_STYLE_PREFIX + contextPrefix + systemPrompt;
 
-    // Only send the last client message as the Anthropic user turn —
-    // the full history is already in the system prompt
     const lastClientMsg = [...messages]
       .reverse()
       .find((m: { role: string; content: string }) =>
@@ -1096,7 +1263,7 @@ Rules:
       messages: finalMessages,
     };
 
-    console.log('[ai/chat] request body:', JSON.stringify(requestBody).slice(0, 300));
+    console.log('[ai/chat] legacy request body:', JSON.stringify(requestBody).slice(0, 300));
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1130,15 +1297,13 @@ Rules:
       return json({ response: '', resolved: false, error: 'empty content from Anthropic' }, 200, origin);
     }
 
-    // Strip markdown formatting before returning to client
     const stripped = rawText
-      .replace(/#{1,6}\s/g, '')            // remove headers (## Heading)
-      .replace(/\*\*(.*?)\*\*/g, '$1')     // remove bold (**text**)
-      .replace(/\*(.*?)\*/g, '$1')         // remove italic (*text*)
-      .replace(/^\s*[-•]\s/gm, '')         // remove bullet points
+      .replace(/#{1,6}\s/g, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/^\s*[-•]\s/gm, '')
       .trim();
 
-    // Detect and strip resolution marker
     const RESOLVED_MARKER = '[RESOLVED]';
     const isResolved = stripped.includes(RESOLVED_MARKER);
     const text = stripped.replace(RESOLVED_MARKER, '').trim();
@@ -1382,6 +1547,420 @@ async function handleCreateManualTicket(
 }
 
 // ---------------------------------------------------------------------------
+// POST /ai/learning/suggest
+// Load ticket + messages → brain learning context → runLegacyZeroLearningSuggestion
+// Insert: support_ticket_memories, support_learning_queue, support_resolution_events
+// Returns: { queueItemId } or { skipped: true } if not worthy
+// ---------------------------------------------------------------------------
+async function handleLearningSuggest(req: Request, env: Env, origin: string): Promise<Response> {
+  let body: {
+    ticketId:          string;
+    locationId:        string;
+    contactId?:        string | null;
+    category:          string;
+    subcategory?:      string | null;
+    featureArea?:      string | null;
+    title:             string;
+    summary?:          string | null;
+    resolutionSummary: string;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400, origin);
+  }
+
+  const { ticketId, locationId, category } = body;
+  if (!ticketId || !locationId || !category) {
+    return json({ error: 'ticketId, locationId, category required' }, 400, origin);
+  }
+
+  // Fetch conversation thread from Supabase
+  const threadRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_messages` +
+    `?ticket_id=eq.${encodeURIComponent(ticketId)}` +
+    `&order=created_at.asc&select=role,content,is_internal,created_at`,
+    {
+      headers: {
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    }
+  );
+
+  const thread = threadRes.ok
+    ? (await threadRes.json() as Array<{ role: string; content: string; is_internal: boolean; created_at: string }>)
+    : [];
+
+  console.log(`[learning/suggest] ticket=${ticketId} thread=${thread.length} category=${category}`);
+
+  // Assemble learning context
+  const ctxInput: LearningContextInput = {
+    locationId,
+    ticketId,
+    category,
+    subcategory:      body.subcategory ?? null,
+    resolutionSummary: body.resolutionSummary,
+  };
+
+  const contextPkg = await assembleLearningContext(env, ctxInput).catch(() => ({
+    kbArticles: [], ticketMemories: [], sopChunks: [], graphInsights: [],
+    contextScore: 0, contextWarnings: [], assembledAt: new Date().toISOString(), phase: 1,
+  }));
+
+  const learningInput: LearningInput = {
+    ticketId,
+    title:             body.title,
+    category,
+    subcategory:       body.subcategory ?? null,
+    summary:           body.summary ?? '',
+    resolutionSummary: body.resolutionSummary,
+    thread,
+  };
+
+  const suggestion = await runLegacyZeroLearningSuggestion(env, contextPkg, learningInput);
+
+  // Always write ticket memory (regardless of KB worthiness)
+  const memoryRow = {
+    location_id:           locationId,
+    contact_id:            body.contactId ?? 'unknown',
+    ticket_id:             ticketId,
+    topic_summary:         body.summary ?? body.title ?? 'Support issue',
+    resolution_summary:    body.resolutionSummary,
+    category,
+    subcategory:           body.subcategory ?? null,
+    resolved_by:           'agent',
+    ticket_created_at:     new Date().toISOString(),
+    ticket_resolved_at:    new Date().toISOString(),
+    exported_to_canonical: false,
+    created_at:            new Date().toISOString(),
+    updated_at:            new Date().toISOString(),
+  };
+
+  fetch(`${env.SUPABASE_URL}/rest/v1/support_ticket_memories`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'return=minimal',
+    },
+    body: JSON.stringify(memoryRow),
+  }).catch(e => console.warn('[learning/suggest] memory insert failed:', e));
+
+  // Write resolution event
+  fetch(`${env.SUPABASE_URL}/rest/v1/support_resolution_events`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'return=minimal',
+    },
+    body: JSON.stringify({
+      location_id:           locationId,
+      ticket_id:             ticketId,
+      contact_id:            body.contactId ?? null,
+      resolution_type:       'agent_resolved',
+      category,
+      subcategory:           body.subcategory ?? null,
+      resolution_summary:    body.resolutionSummary,
+      kb_article_ids_used:   [],
+      sop_ids_used:          [],
+      ai_response_count:     thread.filter(m => m.role === 'ai').length,
+      agent_intervened:      true,
+      resolved_at:           new Date().toISOString(),
+      created_at:            new Date().toISOString(),
+    }),
+  }).catch(e => console.warn('[learning/suggest] resolution_events insert failed:', e));
+
+  // Update graph (fire-and-forget)
+  updateGraphForResolvedTicket(env, {
+    ticketId,
+    locationId,
+    category,
+    subcategory:       body.subcategory ?? null,
+    featureArea:       body.featureArea ?? null,
+    topicSummary:      body.summary ?? body.title ?? '',
+    resolutionSummary: body.resolutionSummary,
+    resolvedBy:        'agent',
+    kbArticleIds:      [],
+  }).catch(e => console.warn('[learning/suggest] graph update failed:', e));
+
+  if (!suggestion) {
+    console.log('[learning/suggest] not worthy — skipping queue insert');
+    return json({ skipped: true, reason: 'not_worthy' }, 200, origin);
+  }
+
+  // Insert into learning queue
+  const queueRow = {
+    location_id:       locationId,
+    ticket_id:         ticketId,
+    source_type:       'resolution_event',
+    suggested_title:   suggestion.suggested_title,
+    suggested_problem: suggestion.problem,
+    suggested_solution: suggestion.solution,
+    category:          suggestion.category,
+    subcategory:       suggestion.subcategory ?? null,
+    suggested_tags:    suggestion.tags,
+    ai_confidence:     suggestion.confidence,
+    status:            suggestion.confidence >= 0.6 ? 'pending' : 'low_confidence',
+    exported_to_canonical: false,
+    created_at:        new Date().toISOString(),
+    updated_at:        new Date().toISOString(),
+  };
+
+  const queueRes = await fetch(`${env.SUPABASE_URL}/rest/v1/support_learning_queue`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer':        'return=representation',
+    },
+    body: JSON.stringify(queueRow),
+  });
+
+  if (!queueRes.ok) {
+    const detail = await queueRes.text();
+    console.error('[learning/suggest] queue insert failed:', queueRes.status, detail);
+    return json({ error: 'queue insert failed', detail }, 502, origin);
+  }
+
+  const queueRows = await queueRes.json() as Array<{ id: string }>;
+  const queueItemId = queueRows[0]?.id ?? null;
+
+  console.log(`[learning/suggest] queued: ${queueItemId} | confidence=${suggestion.confidence} | status=${queueRow.status}`);
+
+  return json({
+    queueItemId,
+    status:     queueRow.status,
+    confidence: suggestion.confidence,
+    title:      suggestion.suggested_title,
+  }, 201, origin);
+}
+
+// ---------------------------------------------------------------------------
+// GET /support/learning-queue?locationId=xxx&status=pending&limit=20
+// Returns pending learning queue items for agent review.
+// ---------------------------------------------------------------------------
+async function handleGetLearningQueue(req: Request, env: Env, origin: string): Promise<Response> {
+  const url        = new URL(req.url);
+  const locationId = url.searchParams.get('locationId');
+  const status     = url.searchParams.get('status') ?? 'pending';
+  const limit      = Math.min(parseInt(url.searchParams.get('limit') ?? '20', 10), 50);
+
+  if (!locationId) {
+    return json({ error: 'locationId required' }, 400, origin);
+  }
+
+  const validStatuses = ['pending', 'low_confidence', 'approved', 'rejected'];
+  const statusFilter = validStatuses.includes(status) ? status : 'pending';
+
+  const qRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_learning_queue` +
+    `?location_id=eq.${encodeURIComponent(locationId)}` +
+    `&status=eq.${statusFilter}` +
+    `&order=ai_confidence.desc,created_at.desc` +
+    `&limit=${limit}` +
+    `&select=id,ticket_id,suggested_title,suggested_problem,suggested_solution,category,subcategory,suggested_tags,ai_confidence,status,created_at`,
+    {
+      headers: {
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Accept':        'application/json',
+      },
+    }
+  );
+
+  if (!qRes.ok) {
+    const detail = await qRes.text();
+    console.error('[learning-queue] fetch failed:', qRes.status, detail);
+    return json({ error: 'failed to fetch learning queue', detail }, 502, origin);
+  }
+
+  const items = await qRes.json() as unknown[];
+  console.log(`[learning-queue] returning ${(items as unknown[]).length} items | location=${locationId} status=${statusFilter}`);
+  return json({ items }, 200, origin);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /support/learning-queue/:id/review
+// Agent approves or rejects a learning queue item.
+// Approved: insert to support_knowledge_articles → update queue → update graph
+// Rejected: update queue with reason
+// ---------------------------------------------------------------------------
+async function handleReviewLearningQueue(
+  queueItemId: string,
+  req: Request,
+  env: Env,
+  origin: string
+): Promise<Response> {
+  let body: {
+    action:           'approved' | 'edited_approved' | 'rejected' | 'dismissed';
+    reviewedBy:       string;
+    locationId:       string;
+    // For approved/edited_approved:
+    title?:           string;
+    problem?:         string;
+    solution?:        string;
+    category?:        string;
+    subcategory?:     string | null;
+    tags?:            string[];
+    // For rejected:
+    rejectionReason?: string;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400, origin);
+  }
+
+  const { action, reviewedBy, locationId } = body;
+  if (!action || !reviewedBy || !locationId) {
+    return json({ error: 'action, reviewedBy, locationId required' }, 400, origin);
+  }
+
+  const now = new Date().toISOString();
+
+  // Fetch the queue item
+  const itemRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_learning_queue` +
+    `?id=eq.${encodeURIComponent(queueItemId)}&limit=1&select=*`,
+    {
+      headers: {
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    }
+  );
+
+  if (!itemRes.ok) {
+    return json({ error: 'failed to fetch queue item' }, 502, origin);
+  }
+
+  const items = await itemRes.json() as Array<Record<string, unknown>>;
+  if (!items.length) {
+    return json({ error: 'queue item not found' }, 404, origin);
+  }
+
+  const item = items[0];
+
+  // ---- APPROVED or EDITED_APPROVED ----
+  if (action === 'approved' || action === 'edited_approved') {
+    const title      = (action === 'edited_approved' && body.title)    ? body.title    : item.suggested_title as string;
+    const problem    = (action === 'edited_approved' && body.problem)   ? body.problem  : item.suggested_problem as string;
+    const solution   = (action === 'edited_approved' && body.solution)  ? body.solution : item.suggested_solution as string;
+    const category   = (action === 'edited_approved' && body.category)  ? body.category : item.category as string;
+    const subcategory = body.subcategory ?? (item.subcategory as string | null) ?? null;
+    const tags       = (action === 'edited_approved' && body.tags)      ? body.tags     : (item.suggested_tags as string[] ?? []);
+
+    // Insert into support_knowledge_articles
+    const articleRes = await fetch(`${env.SUPABASE_URL}/rest/v1/support_knowledge_articles`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=representation',
+      },
+      body: JSON.stringify({
+        location_id:       locationId,
+        title,
+        problem,
+        solution,
+        category,
+        subcategory:       subcategory,
+        feature_area:      null,
+        tags,
+        source:            'agent_approved',
+        source_ticket_id:  item.ticket_id as string,
+        approved_by:       reviewedBy,
+        approved_at:       now,
+        active:            true,
+        retrieval_count:   0,
+        helpful_count:     0,
+        created_at:        now,
+        updated_at:        now,
+      }),
+    });
+
+    if (!articleRes.ok) {
+      const detail = await articleRes.text();
+      console.error('[review] article insert failed:', articleRes.status, detail);
+      return json({ error: 'knowledge article insert failed', detail }, 502, origin);
+    }
+
+    const articleRows = await articleRes.json() as Array<{ id: string }>;
+    const articleId = articleRows[0]?.id ?? null;
+
+    console.log(`[review] approved: queueItem=${queueItemId} → article=${articleId}`);
+
+    // Update queue item: approved + promoted_article_id
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/support_learning_queue?id=eq.${encodeURIComponent(queueItemId)}`,
+      {
+        method:  'PATCH',
+        headers: {
+          'Content-Type':  'application/json',
+          'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'Prefer':        'return=minimal',
+        },
+        body: JSON.stringify({
+          status:             'approved',
+          reviewed_by:        reviewedBy,
+          reviewed_at:        now,
+          promoted_article_id: articleId,
+          updated_at:         now,
+        }),
+      }
+    ).catch(e => console.warn('[review] queue update failed:', e));
+
+    // Update graph with approved knowledge (fire-and-forget)
+    if (articleId) {
+      updateGraphForApprovedKnowledge(env, {
+        id:           articleId,
+        title,
+        category,
+        subcategory:  subcategory ?? null,
+        feature_area: null,
+        tags,
+      }).catch(e => console.warn('[review] graph update failed:', e));
+    }
+
+    return json({ success: true, articleId, action: 'approved' }, 200, origin);
+  }
+
+  // ---- REJECTED or DISMISSED ----
+  const newStatus = action === 'dismissed' ? 'rejected' : 'rejected';
+  const rejectionReason = body.rejectionReason ?? (action === 'dismissed' ? 'dismissed by agent' : 'rejected by agent');
+
+  fetch(
+    `${env.SUPABASE_URL}/rest/v1/support_learning_queue?id=eq.${encodeURIComponent(queueItemId)}`,
+    {
+      method:  'PATCH',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify({
+        status:           newStatus,
+        reviewed_by:      reviewedBy,
+        reviewed_at:      now,
+        rejection_reason: rejectionReason,
+        updated_at:       now,
+      }),
+    }
+  ).catch(e => console.warn('[review] queue reject update failed:', e));
+
+  console.log(`[review] rejected: queueItem=${queueItemId} | reason=${rejectionReason}`);
+  return json({ success: true, action: 'rejected' }, 200, origin);
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 export default {
@@ -1487,6 +2066,22 @@ export default {
 
     if (method === 'POST' && path === '/kb/save') {
       return saveKnowledgeBase(req, env, origin);
+    }
+
+    // POST /ai/learning/suggest — brain learning pipeline trigger
+    if (method === 'POST' && path === '/ai/learning/suggest') {
+      return handleLearningSuggest(req, env, origin);
+    }
+
+    // GET /support/learning-queue?locationId=xxx&status=pending&limit=20
+    if (method === 'GET' && path === '/support/learning-queue') {
+      return handleGetLearningQueue(req, env, origin);
+    }
+
+    // PATCH /support/learning-queue/:id/review
+    const learningQueueReviewMatch = path.match(/^\/support\/learning-queue\/([^/]+)\/review$/);
+    if (method === 'PATCH' && learningQueueReviewMatch) {
+      return handleReviewLearningQueue(learningQueueReviewMatch[1], req, env, origin);
     }
 
     // GET /support/tickets/mine?userId=xxx&locationId=xxx
