@@ -2134,6 +2134,202 @@ async function handleReviewLearningQueue(
 }
 
 // ---------------------------------------------------------------------------
+// POST /support/brain/export-approved-kb
+//
+// Reads support_knowledge_articles where active=true and either:
+//   (a) canonical_file_path IS NULL (never exported), or
+//   (b) exported_to_canonical explicitly requested
+//
+// Returns a sanitized JSON array of articles ready for canonical brain sync.
+// After the caller writes files to legacyzero-brain, they call this endpoint
+// again with exported=true + file paths to mark them exported in Supabase.
+//
+// Two sub-actions via body:
+//   { action: 'fetch' }              → returns unexported active articles
+//   { action: 'mark', items: [...] } → marks articles as exported with paths
+// ---------------------------------------------------------------------------
+async function handleExportApprovedKB(req: Request, env: Env, origin: string): Promise<Response> {
+  let body: {
+    action:   'fetch' | 'mark';
+    locationId?: string | null;   // null = all locations (admin export)
+    limit?:   number;
+    items?:   Array<{
+      id:                  string;
+      canonical_file_path: string;
+      canonical_git_commit?: string | null;
+    }>;
+  };
+
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400, origin);
+  }
+
+  const { action, limit = 100 } = body;
+
+  // ---------------------------------------------------------------------------
+  // action: fetch — return unexported active articles
+  // ---------------------------------------------------------------------------
+  if (action === 'fetch') {
+    const locationFilter = body.locationId
+      ? `&location_id=eq.${encodeURIComponent(body.locationId)}`
+      : '';
+
+    // Query: active=true AND (canonical_file_path IS NULL = never exported)
+    const query =
+      `support_knowledge_articles` +
+      `?active=eq.true` +
+      `&canonical_file_path=is.null` +
+      `${locationFilter}` +
+      `&order=created_at.asc` +
+      `&limit=${Math.min(limit, 200)}` +
+      `&select=id,location_id,title,problem,solution,category,subcategory,feature_area,tags,source,source_ticket_id,approved_by,approved_at,created_at`;
+
+    const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${query}`, {
+      headers: {
+        'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Accept':        'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      const detail = await res.text();
+      console.error('[export-kb/fetch] failed:', res.status, detail.slice(0, 200));
+      return json({ error: 'fetch failed', detail }, 502, origin);
+    }
+
+    type ArticleRow = {
+      id: string; location_id: string | null; title: string; problem: string;
+      solution: string; category: string; subcategory: string | null;
+      feature_area: string | null; tags: string[]; source: string;
+      source_ticket_id: string | null; approved_by: string | null;
+      approved_at: string | null; created_at: string;
+    };
+
+    const rows = await res.json() as ArticleRow[];
+
+    // Sanitize: strip any internal IDs, return clean exportable shape
+    const articles = rows.map(r => ({
+      id:               r.id,
+      location_id:      r.location_id,        // null = global
+      title:            r.title,
+      problem:          r.problem,
+      solution:         r.solution,
+      category:         r.category,
+      subcategory:      r.subcategory ?? null,
+      feature_area:     r.feature_area ?? null,
+      tags:             r.tags ?? [],
+      source:           r.source,
+      source_ticket_id: r.source_ticket_id ?? null,
+      approved_by:      r.approved_by ?? null,
+      approved_at:      r.approved_at ?? null,
+      created_at:       r.created_at,
+      // Suggested file path for canonical brain — caller writes file here
+      suggested_file_path: `knowledge/${r.location_id ? `location-specific/${r.location_id}` : 'global'}/${r.category}/${r.id.slice(0, 8)}-${slugifyTitle(r.title)}.md`,
+    }));
+
+    console.log(`[export-kb/fetch] returning ${articles.length} unexported articles`);
+    return json({ articles, count: articles.length }, 200, origin);
+  }
+
+  // ---------------------------------------------------------------------------
+  // action: mark — update canonical_file_path after export
+  // ---------------------------------------------------------------------------
+  if (action === 'mark') {
+    const items = body.items ?? [];
+    if (!items.length) {
+      return json({ error: 'items array required for mark action' }, 400, origin);
+    }
+
+    const now = new Date().toISOString();
+    let marked = 0;
+    const errors: string[] = [];
+
+    for (const item of items) {
+      if (!item.id || !item.canonical_file_path) {
+        errors.push(`invalid item: ${JSON.stringify(item).slice(0, 80)}`);
+        continue;
+      }
+
+      const patchRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/support_knowledge_articles?id=eq.${encodeURIComponent(item.id)}`,
+        {
+          method:  'PATCH',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            canonical_file_path:  item.canonical_file_path,
+            canonical_git_commit: item.canonical_git_commit ?? null,
+            updated_at:           now,
+          }),
+        }
+      );
+
+      if (!patchRes.ok) {
+        const detail = await patchRes.text().catch(() => 'unknown');
+        errors.push(`${item.id}: ${patchRes.status} ${detail.slice(0, 80)}`);
+        console.warn('[export-kb/mark] patch failed:', item.id, patchRes.status);
+      } else {
+        marked++;
+        console.log(`[export-kb/mark] marked: ${item.id} → ${item.canonical_file_path}`);
+
+        // Write support_resolution_events: exported_to_canonical
+        fetch(`${env.SUPABASE_URL}/rest/v1/support_resolution_events`, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            location_id:           'global',
+            ticket_id:             item.id,  // using article id as reference (no ticket context here)
+            contact_id:            null,
+            resolution_type:       'agent_resolved',
+            category:              'general',
+            subcategory:           null,
+            resolution_summary:    `KB article exported to canonical brain: ${item.canonical_file_path}`,
+            kb_article_ids_used:   [item.id],
+            sop_ids_used:          [],
+            ai_response_count:     0,
+            agent_intervened:      false,
+            resolved_at:           now,
+            created_at:            now,
+          }),
+        }).catch(e => console.warn('[export-kb/mark] resolution_event failed:', e));
+      }
+    }
+
+    console.log(`[export-kb/mark] marked ${marked}/${items.length} articles`);
+    return json({
+      success: true,
+      marked,
+      errors: errors.length > 0 ? errors : undefined,
+    }, 200, origin);
+  }
+
+  return json({ error: `Unknown action: ${action}. Use 'fetch' or 'mark'` }, 400, origin);
+}
+
+/** Slugify an article title for use in file paths */
+function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 60)
+    .replace(/^-|-$/g, '');
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 export default {
@@ -2244,6 +2440,11 @@ export default {
     // POST /ai/learning/suggest — brain learning pipeline trigger
     if (method === 'POST' && path === '/ai/learning/suggest') {
       return handleLearningSuggest(req, env, origin);
+    }
+
+    // POST /support/brain/export-approved-kb — export approved articles to canonical brain
+    if (method === 'POST' && path === '/support/brain/export-approved-kb') {
+      return handleExportApprovedKB(req, env, origin);
     }
 
     // GET /support/learning-queue?locationId=xxx&status=pending&limit=20
