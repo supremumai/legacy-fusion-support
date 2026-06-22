@@ -507,8 +507,13 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     });
 
     // Determine new status: escalated > resolved > triaged
-    const newStatus: string = escalationRec ? 'escalated'
-                            : aiResolved    ? 'resolved'
+    // Escalation only promoted when AI is confident (≥0.75) AND brain had real context.
+    // Low-confidence or context-free triage over-triggers escalation — default those to triaged.
+    const escalationConfident = escalationRec
+      && aiResult.confidence >= 0.75
+      && aiResult.source_quality !== 'none';
+    const newStatus: string = escalationConfident ? 'escalated'
+                            : aiResolved           ? 'resolved'
                             : 'triaged';
 
     await fetch(
@@ -586,7 +591,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     // Notify agent via GHL SMS if escalated or new ticket (fire-and-forget)
     const agentContactId = env.GHL_AGENT_CONTACT_ID ?? '';
     if (agentContactId) {
-      const escalationFlag = escalationRec ? '🚨 ESCALATED — ' : '';
+      const escalationFlag = escalationConfident ? '🚨 ESCALATED — ' : '';
       fetch(`${GHL_V2_BASE}/conversations/messages`, {
         method:  'POST',
         headers: ghlHeaders(env.GHL_LOCATION_TOKEN),
@@ -613,7 +618,7 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
       // Extended fields (optional, backward compatible)
       aiConfidence:          aiResult.confidence,
       sourceQuality:         aiResult.source_quality,
-      escalationRecommended: escalationRec,
+      escalationRecommended: escalationConfident,   // reflects actual promoted status, not raw AI flag
     }, 201, origin);
 
   } catch (aiErr) {

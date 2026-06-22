@@ -768,7 +768,7 @@ async function handleThreadSend() {
   const textToSave = rawText; // original text (with mention) goes to DB
 
   // Determine if LegacyZero should respond
-  const isEarlyStatus = ['new', 'triaged'].includes(activeTicketStatus);
+  const isEarlyStatus = ['new', 'triaged', 'escalated', 'in_progress'].includes(activeTicketStatus);
   const shouldAIRespond = mentionsLegacyZero || (isEarlyStatus && !threadHasAgentMessage);
 
   const clientMsg = { id: `msg-${Date.now()}`, role: 'client', content: textToSave, isInternal: false, createdAt: new Date() };
