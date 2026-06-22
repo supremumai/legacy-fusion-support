@@ -619,7 +619,8 @@ function removeTyping() { document.getElementById('typingIndicator')?.remove(); 
 function setSending(val: boolean) {
   isSending = val;
   ['welcomeSendBtn','welcomeInput','threadSendBtn','threadInput'].forEach(id => {
-    (document.getElementById(id) as HTMLButtonElement | HTMLTextAreaElement).disabled = val;
+    const el = document.getElementById(id) as HTMLButtonElement | HTMLTextAreaElement | null;
+    if (el) el.disabled = val;
   });
 }
 
