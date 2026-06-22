@@ -58,6 +58,7 @@ let myTicketsCache: MyTicketItem[] = [];
 const renderedMsgIds = new Set<string>();
 let threadDescExpanded = false;
 let activeTicketStatus: string = '';
+let activeTicketCategory: string = 'general';
 let threadHasAgentMessage: boolean = false;
 
 // ---------------------------------------------------------------------------
@@ -418,8 +419,9 @@ async function loadTicket(ticket: any) {
       descEl.classList.add('hidden');
     }
   }
-  // Track ticket status for context-aware AI response logic
-  activeTicketStatus = ticket.status ?? '';
+  // Track ticket status and category for context-aware AI response logic
+  activeTicketStatus   = ticket.status   ?? '';
+  activeTicketCategory = ticket.category ?? 'general';
 
   // Load messages from Supabase in live mode; fall back to demo data
   if (IS_DEMO) {
@@ -642,7 +644,12 @@ async function handleWelcomeSend() {
   showTyping('intakeThread');
   try {
     console.log('[intake] passing', intakeMessages.length, 'messages to continueConversation');
-    const aiText = IS_DEMO ? await mockAIResponse(aiResponseCount) : await continueConversation(intakeMessages, text);
+    const intakeBrainCtx = !IS_DEMO ? {
+      ticketId:   intakeTempTicketId || null,
+      locationId: _locationId,
+      category:   'general',  // pre-triage: no category yet, default to general
+    } : undefined;
+    const aiText = IS_DEMO ? await mockAIResponse(aiResponseCount) : await continueConversation(intakeMessages, text, intakeBrainCtx);
     removeTyping();
     aiResponseCount++;
     const aiMsg = { id: `intake-ai-${Date.now()}`, role: 'ai', content: aiText, isInternal: false, createdAt: new Date() };
@@ -813,6 +820,7 @@ async function handleThreadSend() {
       updateThreadPlaceholder('ai');
     } else {
       // Call Worker to get AI response + resolved flag
+      // Include brain context fields so the Worker activates the brain path
       const workerRes = await fetch(
         'https://legacy-fusion-support.hector-0b9.workers.dev/ai/chat',
         {
@@ -824,6 +832,9 @@ async function handleThreadSend() {
               content: m.content,
             })),
             systemPrompt: 'You are LegacyZero, the AI support agent for Legacy Fusion.',
+            ticketId:     activeTicketId || null,
+            locationId:   _locationId,
+            category:     activeTicketCategory || 'general',
           }),
         }
       );
@@ -945,6 +956,7 @@ function showThreadResolutionButtons(ticketId: string): void {
   aiResponseCount = 0;
   intakeTempTicketId = '';
   activeTicketId = null;
+  activeTicketCategory = 'general';
 
   // Reset form state
   selectedCategory    = null;

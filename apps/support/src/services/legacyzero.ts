@@ -40,14 +40,34 @@ function messagesToChat(messages: Message[]): ChatMessage[] {
 // callWorkerAI
 // POSTs to /ai/chat on the Worker proxy.
 // The Worker holds the ANTHROPIC_API_KEY and makes the Anthropic call server-side.
+// brainContext (optional): when provided, activates the brain path in the Worker.
 // ---------------------------------------------------------------------------
-async function callWorkerAI(systemPrompt: string, messages: ChatMessage[]): Promise<string> {
+interface BrainContext {
+  ticketId:   string | null;
+  locationId: string;
+  category:   string;
+}
+
+async function callWorkerAI(
+  systemPrompt: string,
+  messages: ChatMessage[],
+  brainContext?: BrainContext
+): Promise<string> {
   console.log('[callWorkerAI] systemPrompt preview:', systemPrompt.slice(0, 80));
   console.log('[callWorkerAI] messages:', JSON.stringify(messages).slice(0, 200));
+  console.log('[callWorkerAI] brainContext:', brainContext ?? 'none');
   const res = await fetch(`${WORKER_URL}/ai/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, systemPrompt }),
+    body: JSON.stringify({
+      messages,
+      systemPrompt,
+      ...(brainContext?.ticketId ? {
+        ticketId:   brainContext.ticketId,
+        locationId: brainContext.locationId,
+        category:   brainContext.category,
+      } : {}),
+    }),
   });
 
   if (!res.ok) {
@@ -132,10 +152,12 @@ export async function triageConversation(messages: Message[]): Promise<AISummary
 // ---------------------------------------------------------------------------
 // continueConversation
 // Returns the AI's next reply string given conversation history + new message.
+// brainContext (optional): when provided, activates the brain path in the Worker.
 // ---------------------------------------------------------------------------
 export async function continueConversation(
   messages: Message[],
-  userMessage: string
+  userMessage: string,
+  brainContext?: BrainContext
 ): Promise<string> {
   const normalized: ChatMessage[] = messages
     .map(m => ({
@@ -147,5 +169,5 @@ export async function continueConversation(
   // Append the new user message
   normalized.push({ role: 'user', content: userMessage });
 
-  return callWorkerAI(CONVERSATION_SYSTEM_PROMPT, normalized);
+  return callWorkerAI(CONVERSATION_SYSTEM_PROMPT, normalized, brainContext);
 }

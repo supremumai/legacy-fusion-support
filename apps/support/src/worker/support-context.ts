@@ -135,7 +135,7 @@ async function supabaseGet<T>(
 // Step 1 — Query support_knowledge_articles
 //
 // Fetches active KB articles for the given category that are either:
-//   (a) global  (location_id IS NULL), or
+//   (a) global  (location_id = 'global' OR location_id IS NULL), or
 //   (b) scoped  (location_id = locationId)
 //
 // Ranked: helpful_count DESC, retrieval_count DESC
@@ -148,9 +148,9 @@ async function fetchKBArticles(
   category: string,
   subcategory?: string | null
 ): Promise<KBArticle[]> {
-  // Build filter — location match or global, category match, active=true
-  // Use PostgREST filter syntax
-  const locationFilter = `or=(location_id.eq.${encodeURIComponent(locationId)},location_id.is.null)`;
+  // Build filter — location match or global (string 'global' or NULL), category match, active=true
+  // Seeded articles use location_id = 'global'; legacy rows may have NULL — match both.
+  const locationFilter = `or=(location_id.eq.${encodeURIComponent(locationId)},location_id.eq.global,location_id.is.null)`;
   const categoryFilter = `category=eq.${encodeURIComponent(category)}`;
   const activeFilter   = 'active=eq.true';
 
@@ -175,6 +175,7 @@ async function fetchKBArticles(
   const rows = await supabaseGet<Row>(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, query);
 
   // If subcategory narrowing returned 0 results, retry with category only
+  // locationFilter already includes global + null variants — reuse it directly
   if (subcategoryFilter && rows.length === 0) {
     const broadQuery =
       `support_knowledge_articles` +

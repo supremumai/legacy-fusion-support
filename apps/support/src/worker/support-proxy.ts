@@ -1138,14 +1138,16 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
   }
 
   // ---------------------------------------------------------------------------
-  // BRAIN PATH: ticketId + locationId + category provided → use brain context
+  // BRAIN PATH: ticketId + locationId provided → use brain context
+  // category is optional — defaults to 'general' if absent
   // ---------------------------------------------------------------------------
-  if (body.ticketId && body.locationId && body.category) {
+  if (body.ticketId && body.locationId) {
+    const category = body.category || 'general';
     try {
       const ctxInput: ConversationContextInput = {
         locationId:  body.locationId,
         ticketId:    body.ticketId,
-        category:    body.category,
+        category,
         subcategory: body.subcategory ?? null,
         contactId:   body.contactId ?? null,
         turnIndex:   messages.length,
@@ -1167,7 +1169,7 @@ async function handleAIChat(req: Request, env: Env, origin: string): Promise<Res
       const convInput: ConversationInput = {
         messages,
         lastClientMessage: lastClientMsg?.content ?? '',
-        ticketCategory:    body.category,
+        ticketCategory:    category,
         ticketStatus:      body.ticketStatus ?? undefined,
       };
 
