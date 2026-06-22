@@ -507,11 +507,17 @@ async function createTicket(req: Request, env: Env, origin: string): Promise<Res
     });
 
     // Determine new status: escalated > resolved > triaged
-    // Escalation only promoted when AI is confident (≥0.75) AND brain had real context.
-    // Low-confidence or context-free triage over-triggers escalation — default those to triaged.
+    //
+    // Escalation gate (all conditions must be met):
+    //   1. AI explicitly set escalation_recommended = true in triage output
+    //   2. Priority is 'urgent' — medium/high issues are handled by LegacyZero first
+    //   3. AI confidence ≥ 0.70 — low-confidence triage doesn't promote to escalated
+    //
+    // This prevents normal billing questions, how-to requests, and technical issues
+    // from landing as 'escalated' on creation. Agents promote manually if needed.
     const escalationConfident = escalationRec
-      && aiResult.confidence >= 0.75
-      && aiResult.source_quality !== 'none';
+      && aiResult.priority === 'urgent'
+      && aiResult.confidence >= 0.70;
     const newStatus: string = escalationConfident ? 'escalated'
                             : aiResolved           ? 'resolved'
                             : 'triaged';

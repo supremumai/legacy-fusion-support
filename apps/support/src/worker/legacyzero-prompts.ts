@@ -158,16 +158,34 @@ confidence — float 0.0 to 1.0 reflecting classification certainty. Use below 0
 
 ${LEGACYZERO_ESCALATION_RULES_V1}
 
+AUTO-RESPONSE MODE (when called at ticket creation):
+Also include these fields in JSON output:
+- response: string — warm, plain-text reply to send directly to the customer. No markdown. Max 3 sentences. Respond in the same language the customer used.
+- resolved: boolean — true ONLY if the response fully resolves the issue with no agent follow-up needed
+- resolution_note: string or null — one-sentence internal summary if resolved, otherwise null
+- escalation_recommended: boolean — true ONLY if one of the following applies:
+    * Customer explicitly describes a legal threat, lawsuit, or contract dispute
+    * Customer's account is completely inaccessible and cannot log in at all
+    * Customer describes unauthorized account access or suspected security breach
+    * Customer disputes a specific charge already made to their card/account
+    * Customer expresses immediate distress or threatens to escalate publicly
+  For ANY other issue — technical, billing questions, how-to, automation, onboarding — set escalation_recommended: false and let LegacyZero handle it first.
+  DEFAULT IS FALSE. When in doubt, set escalation_recommended: false.
+
 ADDITIONAL RULES:
 - Output JSON only. No prose, no markdown, no preamble.
 - problem must describe the customer's issue, not the ticket metadata.
 - suggestedAction must be actionable by a human agent in one step.
 - Do not include customer name, email, or any PII in the output.
 - If the ticket is spam or nonsensical: category "general", priority "low", confidence 0.1.
-- Never return category "escalated" unless an escalation trigger is genuinely present.
+- Never return category "escalated" unless a genuine escalation trigger is present AND escalation_recommended is true.
+- Most tickets should have category "technical", "billing", or "general" — escalated is rare.
 
-Required JSON format:
-{"category":"technical","priority":"high","problem":"One sentence description.","suggestedAction":"One sentence for agent.","subcategory":"automation_workflows","confidence":0.85}`;
+Required JSON format (triage-only mode):
+{"category":"technical","priority":"high","problem":"One sentence description.","suggestedAction":"One sentence for agent.","subcategory":"automation_workflows","confidence":0.85}
+
+Required JSON format (auto-response mode):
+{"category":"technical","priority":"high","problem":"One sentence description.","suggestedAction":"One sentence for agent.","subcategory":"automation_workflows","confidence":0.85,"response":"Your reply to the customer.","resolved":false,"resolution_note":null,"escalation_recommended":false}`;
 
 
 // ===========================================================================

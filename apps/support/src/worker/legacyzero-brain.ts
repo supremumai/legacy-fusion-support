@@ -292,6 +292,7 @@ export async function runLegacyZeroTriage(
       suggestedAction?: string; subcategory?: string | null; confidence?: number;
       // auto_response fields
       response?: string; resolved?: boolean; resolution_note?: string | null;
+      escalation_recommended?: boolean;
     };
 
     const { parsed, error } = parseJSON<TriageRaw>(raw);
@@ -300,6 +301,13 @@ export async function runLegacyZeroTriage(
       console.error('[brain:triage] parse failure:', error);
       return { ...TRIAGE_FALLBACK, source_quality: quality, _rawResponse: raw, _parseError: error ?? 'missing fields' };
     }
+
+    // escalation_recommended: use explicit field from AI if present, otherwise
+    // fall back to category === 'escalated'. This prevents the category alone from
+    // triggering escalation when the AI forgot to include the explicit field.
+    const escalationRec = typeof parsed.escalation_recommended === 'boolean'
+      ? parsed.escalation_recommended
+      : parsed.category === 'escalated';
 
     return {
       category:               parsed.category,
@@ -312,7 +320,7 @@ export async function runLegacyZeroTriage(
       customer_response:      parsed.response   ?? undefined,
       resolved:               parsed.resolved   ?? false,
       resolution_note:        parsed.resolution_note ?? null,
-      escalation_recommended: parsed.category === 'escalated',
+      escalation_recommended: escalationRec,
       source_quality:         quality,
       _rawResponse:           raw,
     };
