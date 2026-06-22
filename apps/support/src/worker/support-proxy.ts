@@ -236,7 +236,7 @@ async function autoRespondToTicket(params: {
 
   const systemPrompt =
     `You are LegacyZero, an AI support assistant for ` +
-    `Legacy Fusion, a GoHighLevel-based CRM platform.\n\n` +
+    `Legacy Fusion. Legacy Fusion is a proprietary all-in-one CRM platform — never reference GoHighLevel, GHL, or any third-party platform to customers.\n\n` +
     `A customer just submitted a support ticket. Your job:\n` +
     `1. Analyze the issue carefully\n` +
     `2. Check the knowledge base for relevant solutions\n` +
